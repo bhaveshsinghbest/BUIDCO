@@ -69,12 +69,18 @@ export function ColumnsButton({
   onToggle,
   onShowAll,
   onHideAll,
+  label = 'Columns',
+  panelTitle = 'Column visibility',
 }: {
   columns: ToolbarColumn[];
   visibility: Record<string, boolean>;
   onToggle: (key: string) => void;
   onShowAll: () => void;
   onHideAll: () => void;
+  /** Button text, e.g. "Customize Fields" for the Overview dashboard. Defaults to "Columns" for table use. */
+  label?: string;
+  /** Popover header, e.g. "Field visibility". Defaults to "Column visibility". */
+  panelTitle?: string;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -84,12 +90,12 @@ export function ColumnsButton({
   return (
     <div className="relative" ref={ref}>
       <Button variant="outline" size="sm" onClick={() => setOpen((p) => !p)} aria-expanded={open}>
-        ⚙ Columns ({visibleCount}/{columns.length})
+        ⚙ {label} ({visibleCount}/{columns.length})
       </Button>
       {open ? (
         <div className="absolute right-0 top-full z-30 mt-1 w-64 rounded-lg border border-[#E5E7EB] bg-white p-3 shadow-lg">
           <div className="mb-2 flex items-center justify-between text-[11px] font-semibold text-[#374151]">
-            Column visibility
+            {panelTitle}
             <div className="flex gap-1">
               <Button variant="ghost" size="xs" onClick={onShowAll}>
                 Show all

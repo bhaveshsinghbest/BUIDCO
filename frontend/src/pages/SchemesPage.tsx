@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
 import { useGetSchemeSummaryQuery, useGetSchemeChartQuery } from '../app/api/kpisApi';
+import { useCreateSchemeMutation } from '../app/api/lookupsApi';
 import { DrillTable } from '../components/summary/DrillTable';
 import { SummaryCard } from '../components/summary/SummaryCard';
+import { AddLookupItemDialog } from '../components/ui/AddLookupItemDialog';
+import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
 import { ColumnFilterText, textMatches, minMatches } from '../components/ui/ColumnFilter';
@@ -43,8 +46,10 @@ const METRIC_STATUS: Partial<Record<MetricKey, string>> = {
 export function SchemesPage(): JSX.Element {
   const summary = useGetSchemeSummaryQuery();
   const chart = useGetSchemeChartQuery();
+  const [createScheme] = useCreateSchemeMutation();
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [activeMetric, setActiveMetric] = useState<MetricKey | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
 
   const totals = useMemo(() => {
     const items = summary.data?.items ?? [];
@@ -84,11 +89,14 @@ export function SchemesPage(): JSX.Element {
 
   return (
     <article className="space-y-4">
-      <header>
-        <h1 className="text-lg font-bold text-[#111827]">Scheme-wise Summary</h1>
-        <p className="text-[12.5px] text-[#6B7280]">
-          Click a scheme card to drill into its projects.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-lg font-bold text-[#111827]">Scheme-wise Summary</h1>
+          <p className="text-[12.5px] text-[#6B7280]">
+            Click a scheme card to drill into its projects.
+          </p>
+        </div>
+        <Button size="sm" onClick={() => setAddOpen(true)}>+ Add New Scheme</Button>
       </header>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-5">
@@ -215,6 +223,16 @@ export function SchemesPage(): JSX.Element {
           schemeId={selected.schemeId}
           labelOfContext={selected.schemeName}
           onClose={() => setSelectedId(null)}
+        />
+      ) : null}
+
+      {addOpen ? (
+        <AddLookupItemDialog
+          title="Add New Scheme"
+          fieldLabel="Scheme Name"
+          placeholder="e.g. Namami Gange"
+          onSubmit={(name) => createScheme(name).unwrap()}
+          onClose={() => setAddOpen(false)}
         />
       ) : null}
     </article>

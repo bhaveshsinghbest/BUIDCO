@@ -2,9 +2,9 @@ import { useGetOverviewKpisQuery, useGetSchemeChartQuery, useGetStatusDonutQuery
 import { useAppSelector } from '../app/hooks';
 import { SchemeBarChart } from '../components/charts/SchemeBarChart';
 import { StatusDonut } from '../components/charts/StatusDonut';
-import { DistrictSummaryCard } from '../components/overview/DistrictSummaryCard';
+import { DivisionSummaryCard } from '../components/overview/DivisionSummaryCard';
 import { FinancialSecuritiesCard } from '../components/overview/FinancialSecuritiesCard';
-import { KpiGrid } from '../components/overview/KpiGrid';
+import { KpiGrid, KPI_FIELDS, KPI_STORAGE_KEY } from '../components/overview/KpiGrid';
 import { OmAlertsCard } from '../components/overview/OmAlertsCard';
 import { PbgAlertsCard } from '../components/overview/PbgAlertsCard';
 import { PbgExpiryBanner } from '../components/overview/PbgExpiryBanner';
@@ -15,6 +15,7 @@ import { WorkTypeCountsCard } from '../components/overview/WorkTypeCountsCard';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
+import { ColumnsButton, useColumnVisibility } from '../components/ui/TableToolbar';
 import { selectCurrentUser } from '../features/auth/authSlice';
 
 export function OverviewPage(): JSX.Element {
@@ -22,6 +23,7 @@ export function OverviewPage(): JSX.Element {
   const overview = useGetOverviewKpisQuery();
   const donut = useGetStatusDonutQuery();
   const scheme = useGetSchemeChartQuery();
+  const { visibility, isVisible, toggle, showAll, hideAll } = useColumnVisibility(KPI_STORAGE_KEY, KPI_FIELDS);
 
   const refetchAll = (): void => {
     void overview.refetch();
@@ -44,16 +46,27 @@ export function OverviewPage(): JSX.Element {
             Portfolio-wide view of every project managed by BUIDCO.
           </p>
         </div>
-        <Button variant="outline" size="sm" onClick={refetchAll} disabled={anyFetching}>
-          <span className={anyFetching ? 'animate-spin' : ''} aria-hidden>
-            ↻
-          </span>{' '}
-          {anyFetching ? 'Refreshing…' : 'Refresh'}
-        </Button>
+        <div className="flex items-center gap-2">
+          <ColumnsButton
+            columns={KPI_FIELDS}
+            visibility={visibility}
+            onToggle={toggle}
+            onShowAll={showAll}
+            onHideAll={hideAll}
+            label="Customize Fields"
+            panelTitle="Dashboard fields"
+          />
+          <Button variant="outline" size="sm" onClick={refetchAll} disabled={anyFetching}>
+            <span className={anyFetching ? 'animate-spin' : ''} aria-hidden>
+              ↻
+            </span>{' '}
+            {anyFetching ? 'Refreshing…' : 'Refresh'}
+          </Button>
+        </div>
       </div>
 
       {overview.isLoading ? (
-        <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
+        <div className="grid grid-cols-[repeat(auto-fit,minmax(180px,1fr))] gap-3">
           {Array.from({ length: 6 }).map((_, i) => (
             <Skeleton key={i} className="h-24 w-full" />
           ))}
@@ -61,7 +74,7 @@ export function OverviewPage(): JSX.Element {
       ) : overview.error ? (
         <ErrorPanel />
       ) : (
-        <KpiGrid data={overview.data} />
+        <KpiGrid data={overview.data} isVisible={isVisible} />
       )}
 
       <StageBucketsCard />
@@ -112,7 +125,7 @@ export function OverviewPage(): JSX.Element {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <SectorSummaryCard />
-        <DistrictSummaryCard />
+        <DivisionSummaryCard />
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">

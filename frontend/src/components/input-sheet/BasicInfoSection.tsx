@@ -1,11 +1,16 @@
 import { useState } from 'react';
-import { useGetLookupsQuery } from '../../app/api/lookupsApi';
+import { useCreateSchemeMutation, useCreateSectorMutation, useGetLookupsQuery } from '../../app/api/lookupsApi';
+import { AddLookupItemDialog } from '../ui/AddLookupItemDialog';
 import { Card, CardContent } from '../ui/card';
 import { FormField } from './FormField';
 import { FormSectionHeader } from './FormSectionHeader';
 import { MultiSelectField } from './MultiSelectField';
 import type { ProjectDraft } from '../../hooks/useProjectDraft';
 import type { ContractType } from '../../types/api';
+
+/** Sentinel option value for the Sector dropdown's "+ Add New Sector" row —
+ *  never a real sectorId, so it can't collide with an actual selection. */
+const ADD_NEW_SECTOR = '__add_new_sector__';
 
 interface Props {
   draft: ProjectDraft;
@@ -29,6 +34,11 @@ export function BasicInfoSection({ draft, setField, readOnly = false, num = '01'
   const schemes = lookups?.schemes ?? [];
   const regions = lookups?.regions ?? [];
   const divisions = lookups?.divisions ?? [];
+
+  const [createSector] = useCreateSectorMutation();
+  const [createScheme] = useCreateSchemeMutation();
+  const [addSectorOpen, setAddSectorOpen] = useState(false);
+  const [addSchemeOpen, setAddSchemeOpen] = useState(false);
 
   // Division belongs to exactly one Region, so the Region picker filters the
   // Division dropdown. Region isn't stored on the project — it's derived from
@@ -62,8 +72,17 @@ export function BasicInfoSection({ draft, setField, readOnly = false, num = '01'
             label="Sector"
             type="select"
             value={draft.sectorId === null ? '' : String(draft.sectorId)}
-            onChange={(v) => setField('sectorId', v ? Number(v) : null)}
-            options={sectors.map((s) => ({ value: String(s.sectorId), label: s.sectorName }))}
+            onChange={(v) => {
+              if (v === ADD_NEW_SECTOR) {
+                setAddSectorOpen(true);
+                return;
+              }
+              setField('sectorId', v ? Number(v) : null);
+            }}
+            options={[
+              ...sectors.map((s) => ({ value: String(s.sectorId), label: s.sectorName })),
+              { value: ADD_NEW_SECTOR, label: '+ Add New Sector' },
+            ]}
             disabled={readOnly}
           />
           <FormField
@@ -145,11 +164,16 @@ export function BasicInfoSection({ draft, setField, readOnly = false, num = '01'
             placeholder="+ Add scheme"
             className="md:col-span-2"
             disabled={readOnly}
+            onAddNew={() => setAddSchemeOpen(true)}
+            addNewLabel="+ Add New Scheme"
           />
           <FormField
             label="Main Work"
+            type="textarea"
+            rows={3}
             value={draft.mainWork}
             onChange={(v) => setField('mainWork', v || null)}
+            className="md:col-span-2"
             disabled={readOnly}
           />
           <FormField
@@ -200,6 +224,30 @@ export function BasicInfoSection({ draft, setField, readOnly = false, num = '01'
           />
         </div>
       </CardContent>
+
+      {addSectorOpen ? (
+        <AddLookupItemDialog
+          title="Add New Sector"
+          fieldLabel="Sector Name"
+          placeholder="e.g. Water Supply"
+          onSubmit={(name) => createSector(name).unwrap()}
+          onClose={() => setAddSectorOpen(false)}
+          onCreated={(result) => setField('sectorId', (result as { sectorId: number }).sectorId)}
+        />
+      ) : null}
+
+      {addSchemeOpen ? (
+        <AddLookupItemDialog
+          title="Add New Scheme"
+          fieldLabel="Scheme Name"
+          placeholder="e.g. Namami Gange"
+          onSubmit={(name) => createScheme(name).unwrap()}
+          onClose={() => setAddSchemeOpen(false)}
+          onCreated={(result) =>
+            setField('schemes', [...draft.schemes, (result as { schemeId: number }).schemeId])
+          }
+        />
+      ) : null}
     </Card>
   );
 }

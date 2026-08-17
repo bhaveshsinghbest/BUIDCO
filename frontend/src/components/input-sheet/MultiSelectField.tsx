@@ -10,6 +10,12 @@ export interface MultiSelectFieldProps {
   className?: string;
   hint?: string;
   disabled?: boolean;
+  /** When provided, an "+ Add New …" row appears at the end of the
+   *  dropdown (e.g. "+ Add New Scheme") that calls this instead of adding
+   *  an existing option — the caller opens its own create-new dialog. */
+  onAddNew?: () => void;
+  /** Label for the add-new row. Defaults to "+ Add New". */
+  addNewLabel?: string;
 }
 
 /**
@@ -25,6 +31,8 @@ export function MultiSelectField({
   className,
   hint,
   disabled = false,
+  onAddNew,
+  addNewLabel = '+ Add New',
 }: MultiSelectFieldProps): JSX.Element {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -95,13 +103,13 @@ export function MultiSelectField({
               type="button"
               onClick={() => setOpen((o) => !o)}
               className="ml-auto rounded px-2 py-0.5 text-[11px] font-semibold text-[#1E3A5F] hover:bg-[#F3F4F6]"
-              disabled={available.length === 0}
+              disabled={available.length === 0 && !onAddNew}
             >
-              {available.length === 0 ? 'All added' : placeholder}
+              {available.length === 0 && !onAddNew ? 'All added' : placeholder}
             </button>
           )}
         </div>
-        {open && !disabled && available.length > 0 ? (
+        {open && !disabled && (available.length > 0 || onAddNew) ? (
           <div className="absolute z-20 mt-1 max-h-60 w-full overflow-auto rounded border border-[#E5E7EB] bg-white shadow-lg">
             {available.map((o) => (
               <button
@@ -113,6 +121,21 @@ export function MultiSelectField({
                 {o.label}
               </button>
             ))}
+            {onAddNew ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  onAddNew();
+                }}
+                className={cn(
+                  'block w-full px-3 py-1.5 text-left text-[12.5px] font-semibold text-[#1D4ED8] hover:bg-[#EFF6FF]',
+                  available.length > 0 && 'border-t border-[#F3F4F6]',
+                )}
+              >
+                {addNewLabel}
+              </button>
+            ) : null}
           </div>
         ) : null}
       </div>

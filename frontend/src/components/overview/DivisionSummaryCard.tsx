@@ -1,18 +1,19 @@
 import { NavLink } from 'react-router-dom';
-import { useGetDistrictSummaryQuery } from '../../app/api/kpisApi';
+import { useGetDivisionSummaryQuery } from '../../app/api/kpisApi';
 import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Skeleton } from '../ui/skeleton';
 
-export function DistrictSummaryCard(): JSX.Element {
-  const { data, isLoading, error } = useGetDistrictSummaryQuery();
-  const rows = (data?.items ?? []).slice(0, 8);
+/** Replaces DistrictSummaryCard on the Overview dashboard (bhaveshTask.md). */
+export function DivisionSummaryCard(): JSX.Element {
+  const { data, isLoading, error } = useGetDivisionSummaryQuery();
+  const rows = [...(data?.items ?? [])].sort((a, b) => b.total - a.total).slice(0, 10);
 
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
-        <CardTitle>Districts — Top {rows.length}</CardTitle>
+        <CardTitle>Divisions — Top {rows.length}</CardTitle>
         <NavLink
-          to="/districts"
+          to="/divisions"
           className="text-[11px] font-semibold uppercase tracking-wider text-[#1D4ED8] hover:underline"
         >
           View all →
@@ -22,15 +23,16 @@ export function DistrictSummaryCard(): JSX.Element {
         {isLoading ? (
           <Skeleton className="h-40 w-full" />
         ) : error ? (
-          <p className="text-sm text-[#B91C1C]">Could not load districts.</p>
+          <p className="text-sm text-[#B91C1C]">Could not load divisions.</p>
         ) : rows.length === 0 ? (
-          <EmptyDistricts />
+          <EmptyDivisions />
         ) : (
           <div className="overflow-x-auto rounded border border-[#E5E7EB]">
-            <table className="w-full min-w-[420px] text-sm">
+            <table className="w-full min-w-[480px] text-sm">
               <thead className="bg-[#F9FAFB] text-[10.5px] uppercase tracking-wider text-[#6B7280]">
                 <tr>
-                  <th className="px-3 py-2 text-left font-semibold">District</th>
+                  <th className="px-3 py-2 text-left font-semibold">Division</th>
+                  <th className="px-3 py-2 text-left font-semibold">Region</th>
                   <th className="px-3 py-2 text-right font-semibold">Total</th>
                   <th className="px-3 py-2 text-right font-semibold">Done</th>
                   <th className="px-3 py-2 text-right font-semibold">Delayed</th>
@@ -39,15 +41,16 @@ export function DistrictSummaryCard(): JSX.Element {
               </thead>
               <tbody className="divide-y divide-[#F3F4F6]">
                 {rows.map((row) => (
-                  <tr key={row.districtId} className="hover:bg-[#F9FAFB]">
+                  <tr key={row.divisionId} className="hover:bg-[#F9FAFB]">
                     <td className="px-3 py-2">
                       <NavLink
-                        to={`/projects?districtId=${row.districtId}`}
+                        to={`/projects?divisionId=${row.divisionId}`}
                         className="font-medium text-[#111827] hover:text-[#1D4ED8]"
                       >
-                        {row.districtName}
+                        {row.divisionName}
                       </NavLink>
                     </td>
+                    <td className="px-3 py-2 text-[#6B7280]">{row.regionName}</td>
                     <td className="px-3 py-2 text-right tabular-nums">{row.total}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-[#15803D]">
                       {row.completed}
@@ -69,12 +72,12 @@ export function DistrictSummaryCard(): JSX.Element {
   );
 }
 
-function EmptyDistricts(): JSX.Element {
+function EmptyDivisions(): JSX.Element {
   return (
     <div className="rounded border border-dashed border-[#E5E7EB] bg-[#F9FAFB] px-4 py-6 text-center text-sm text-[#6B7280]">
-      <p className="font-medium text-[#374151]">No district-level data yet.</p>
+      <p className="font-medium text-[#374151]">No division-level data yet.</p>
       <p className="mt-1 text-xs">
-        Districts populate once projects have a district assigned via the Input Sheet.
+        Divisions populate once projects have a division assigned via the Input Sheet.
       </p>
     </div>
   );
