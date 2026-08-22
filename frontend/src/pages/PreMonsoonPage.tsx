@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import {
   useCreatePreMonsoonMutation,
   useDeletePreMonsoonMutation,
@@ -11,6 +11,7 @@ import { FormField } from '../components/input-sheet/FormField';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
+import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../components/ui/ColumnFilter';
 import { cn } from '../lib/utils';
 import type { Priority } from '../types/api';
 
@@ -32,8 +33,30 @@ export function PreMonsoonPage(): JSX.Element {
   const [editDeadline, setEditDeadline] = useState('');
 
   const busy = createState.isLoading || updateState.isLoading || deleteState.isLoading;
-  const items = data?.items ?? [];
+  const items = useMemo(() => data?.items ?? [], [data]);
   const todayStr = new Date().toISOString().slice(0, 10);
+
+  const [colFilters, setColFilters] = useState<Record<string, string>>({});
+  const setColFilter = (key: string, value: string): void => {
+    setColFilters((prev) => ({ ...prev, [key]: value }));
+  };
+  const activeFilterCount = Object.values(colFilters).filter(Boolean).length;
+  const clearColFilters = (): void => setColFilters({});
+
+  const filteredItems = useMemo(
+    () =>
+      items.filter(
+        (it) =>
+          textMatches(colFilters.topic ?? '', it.topic) &&
+          selectMatches(colFilters.priority ?? '', it.priority ?? ''),
+      ),
+    [items, colFilters],
+  );
+
+  const priorityFilterOptions = useMemo(
+    () => PRIORITIES.map((p) => ({ value: p, label: p })),
+    [],
+  );
 
   const handleAdd = async (): Promise<void> => {
     setError(null);
@@ -141,8 +164,17 @@ export function PreMonsoonPage(): JSX.Element {
 
       <Card>
         <CardContent className="p-0">
-          <div className="border-b border-[#F3F4F6] bg-[#F9FAFB] px-4 py-2 text-[11.5px] font-bold text-[#374151]">
-            Preparation Topics ({items.length})
+          <div className="flex items-center justify-between border-b border-[#F3F4F6] bg-[#F9FAFB] px-4 py-2 text-[11.5px] font-bold text-[#374151]">
+            <span>Preparation Topics ({filteredItems.length}{activeFilterCount > 0 ? ` of ${items.length}` : ''})</span>
+            {activeFilterCount > 0 ? (
+              <button
+                type="button"
+                onClick={clearColFilters}
+                className="text-[11px] font-semibold text-[#1D4ED8] hover:underline"
+              >
+                Clear column filters ({activeFilterCount})
+              </button>
+            ) : null}
           </div>
           {isLoading ? (
             <div className="p-4">
@@ -152,20 +184,38 @@ export function PreMonsoonPage(): JSX.Element {
             <div className="p-6 text-center text-[12.5px] text-[#6B7280]">
               No preparation topics yet.
             </div>
+          ) : filteredItems.length === 0 ? (
+            <div className="p-6 text-center text-[12.5px] text-[#6B7280]">
+              No preparation topics match the current filters.
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[720px] border-collapse text-[12.5px]">
                 <thead>
                   <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280]">
                     <th className="px-4 py-2 text-left">#</th>
-                    <th className="px-4 py-2 text-left">Topic</th>
-                    <th className="px-4 py-2 text-left">Priority</th>
+                    <th className="px-4 py-2 text-left">
+                      <div>Topic</div>
+                      <ColumnFilterText
+                        value={colFilters.topic ?? ''}
+                        onChange={(v) => setColFilter('topic', v)}
+                        placeholder="Filter…"
+                      />
+                    </th>
+                    <th className="px-4 py-2 text-left">
+                      <div>Priority</div>
+                      <ColumnFilterSelect
+                        value={colFilters.priority ?? ''}
+                        onChange={(v) => setColFilter('priority', v)}
+                        options={priorityFilterOptions}
+                      />
+                    </th>
                     <th className="px-4 py-2 text-left">Deadline</th>
                     <RoleGateHead />
                   </tr>
                 </thead>
                 <tbody>
-                  {items.map((it, idx) => {
+                  {filteredItems.map((it, idx) => {
                     const overdue = it.deadlineDate && it.deadlineDate < todayStr;
                     const isEditing = editingId === it.itemId;
                     return (

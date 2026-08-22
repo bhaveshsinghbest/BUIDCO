@@ -29,14 +29,14 @@ export function SectorSummaryCard(): JSX.Element {
         ) : rows.length === 0 ? (
           <p className="text-sm text-[#6B7280]">No sector data.</p>
         ) : (
-          <ul className="space-y-2.5">
+          <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {rows.map((row) => {
               const pctCompleted = row.total > 0 ? (row.completed / row.total) * 100 : 0;
               return (
                 <li key={row.sectorId}>
                   <NavLink
                     to={`/projects?sectorId=${row.sectorId}`}
-                    className="group grid grid-cols-[1fr_auto] gap-x-2 rounded p-1 transition-colors hover:bg-[#F9FAFB]"
+                    className="group grid grid-cols-[1fr_auto] gap-x-2 rounded-lg border border-[#E5E7EB] p-2.5 transition-all hover:-translate-y-0.5 hover:border-[#93C5FD] hover:bg-[#F9FAFB] hover:shadow-md"
                   >
                     <div className="flex items-center gap-2">
                       <span className="text-sm font-medium text-[#111827] group-hover:text-[#1E3A5F]">

@@ -20,6 +20,7 @@ import type { Lookups, ProjectListItem, TenderSubStage } from '../../types/api';
 import { cn } from '../../lib/utils';
 import { formatDate } from '../../lib/formatters';
 import { Button } from '../ui/button';
+import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../ui/ColumnFilter';
 import { RemarksButton, RemarksDialog } from '../projects/RemarksDialog';
 import { Skeleton } from '../ui/skeleton';
 
@@ -114,8 +115,11 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
       return next;
     });
   };
-  const selectAllActive = (): void => {
-    setSelectedIds(new Set(activeStageProjects.map((p) => p.projectId)));
+  // Takes the ids to select rather than deriving them here, since StagesTab
+  // may have its own column filters narrowing which rows are visible —
+  // "Select all" should only select what's currently shown.
+  const selectAllActive = (ids: string[]): void => {
+    setSelectedIds(new Set(ids));
   };
   const clearSelection = (): void => setSelectedIds(new Set());
 
@@ -174,121 +178,112 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto p-2 sm:p-4"
+      className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-white"
       role="dialog"
       aria-modal="true"
       aria-label="Tender Dashboard"
     >
-      <button
-        type="button"
-        aria-label="Close"
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm"
-        onClick={onClose}
-      />
-
-      <div
-        className="relative my-3 w-full max-w-[1600px] rounded-xl border border-[#E5E7EB] bg-white shadow-2xl"
-        style={{ width: '95vw' }}
+      <header
+        className="flex shrink-0 flex-wrap items-center justify-between gap-2 px-3 py-3 sm:px-5 sm:py-3.5"
+        style={{ background: 'linear-gradient(100deg,#1E3A5F 0%,#2563EB 100%)' }}
       >
-        <header
-          className="sticky top-0 z-10 flex flex-wrap items-center justify-between gap-2 rounded-t-xl px-3 py-3 sm:px-5 sm:py-3.5"
-          style={{ background: 'linear-gradient(100deg,#1E3A5F 0%,#2563EB 100%)' }}
-        >
-          <div className="min-w-0">
-            <p className="text-[10.5px] font-bold uppercase tracking-wider text-[#93C5FD]">
-              ⚖ Tender Workflow
-            </p>
-            <h2 className="mt-0.5 text-[15px] font-bold text-white">Tender Dashboard</h2>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            <span className="rounded-full border border-white/30 bg-white/15 px-2.5 py-0.5 text-[11px] font-semibold text-white">
-              {tenderProjects.length} project{tenderProjects.length === 1 ? '' : 's'} in tender
-            </span>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={onClose}
-              aria-label="Close"
-              className="border-white/40 bg-white/15 text-white hover:bg-white/25"
-            >
-              ✕
-            </Button>
-          </div>
-        </header>
-
-        <nav
-          role="tablist"
-          aria-label="Tender Dashboard tabs"
-          className="flex flex-wrap gap-0.5 border-b-2 border-[#E5E7EB] px-2 pt-2 sm:px-4"
-        >
-          {TABS.map((t) => (
-            <button
-              key={t.key}
-              type="button"
-              role="tab"
-              aria-selected={tab === t.key}
-              onClick={() => setTab(t.key)}
-              className={cn(
-                '-mb-0.5 whitespace-nowrap border-b-2 px-4 py-2 text-[12px] font-semibold transition-colors',
-                tab === t.key
-                  ? 'border-[#1E3A5F] text-[#1E3A5F]'
-                  : 'border-transparent text-[#6B7280] hover:text-[#374151]',
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </nav>
-
-        <div className="max-h-[calc(100vh-160px)] overflow-y-auto px-3 py-4 sm:px-5 sm:py-5">
-          {flash ? (
-            <div
-              className={cn(
-                'mb-3 rounded border px-3 py-2 text-[12.5px]',
-                flash.kind === 'ok'
-                  ? 'border-[#86EFAC] bg-[#F0FDF4] text-[#15803D]'
-                  : 'border-[#FCA5A5] bg-[#FEF2F2] text-[#B91C1C]',
-              )}
-              role="status"
-            >
-              {flash.text}
-            </div>
-          ) : null}
-
-          {projectsQuery.isLoading ? (
-            <div className="space-y-3">
-              <Skeleton className="h-24 w-full" />
-              <Skeleton className="h-64 w-full" />
-            </div>
-          ) : tab === 'dashboard' ? (
-            <DashboardTab
-              byStage={byStage}
-              selectedStage={selectedStage}
-              onSelect={setSelectedStage}
-              drillProjects={drillProjects}
-              lookups={lookupsQuery.data}
-              onOpenRemarks={setRemarksProject}
-            />
-          ) : (
-            <StagesTab
-              stagesActive={stagesActive}
-              onStageChange={setStagesActive}
-              byStage={byStage}
-              projects={activeStageProjects}
-              selectedIds={selectedIds}
-              onToggleSelect={toggleSelect}
-              onSelectAll={selectAllActive}
-              onClearSelection={clearSelection}
-              canPrev={canPrev}
-              canNext={canNext}
-              canTransfer={canTransfer}
-              busy={transferState.isLoading}
-              onTransferPrev={() => void runTransfer('prev')}
-              onTransferNext={() => void runTransfer('next')}
-              lookups={lookupsQuery.data}
-            />
-          )}
+        <div className="min-w-0">
+          <p className="text-[10.5px] font-bold uppercase tracking-wider text-[#93C5FD]">
+            ⚖ Tender Workflow
+          </p>
+          <h2 className="mt-0.5 text-[15px] font-bold text-white">Tender Dashboard</h2>
         </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <span className="rounded-full border border-white/30 bg-white/15 px-2.5 py-0.5 text-[11px] font-semibold text-white">
+            {tenderProjects.length} project{tenderProjects.length === 1 ? '' : 's'} in tender
+          </span>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={onClose}
+            aria-label="Close"
+            className="border-white/40 bg-white/15 text-white hover:bg-white/25"
+          >
+            ✕ Close
+          </Button>
+        </div>
+      </header>
+
+      <nav
+        role="tablist"
+        aria-label="Tender Dashboard tabs"
+        className="flex shrink-0 flex-wrap gap-0.5 border-b-2 border-[#E5E7EB] px-2 pt-2 sm:px-4"
+      >
+        {TABS.map((t) => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            onClick={() => setTab(t.key)}
+            className={cn(
+              '-mb-0.5 whitespace-nowrap border-b-2 px-4 py-2 text-[12px] font-semibold transition-colors',
+              tab === t.key
+                ? 'border-[#1E3A5F] text-[#1E3A5F]'
+                : 'border-transparent text-[#6B7280] hover:text-[#374151]',
+            )}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* flex-1 + its own overflow-y-auto — fills whatever height remains
+          below the header/nav (whatever their actual rendered height is)
+          instead of the old max-h-[calc(100vh-160px)] guess. */}
+      <div className="flex-1 overflow-y-auto px-3 py-4 sm:px-5 sm:py-5">
+        {flash ? (
+          <div
+            className={cn(
+              'mb-3 rounded border px-3 py-2 text-[12.5px]',
+              flash.kind === 'ok'
+                ? 'border-[#86EFAC] bg-[#F0FDF4] text-[#15803D]'
+                : 'border-[#FCA5A5] bg-[#FEF2F2] text-[#B91C1C]',
+            )}
+            role="status"
+          >
+            {flash.text}
+          </div>
+        ) : null}
+
+        {projectsQuery.isLoading ? (
+          <div className="space-y-3">
+            <Skeleton className="h-24 w-full" />
+            <Skeleton className="h-64 w-full" />
+          </div>
+        ) : tab === 'dashboard' ? (
+          <DashboardTab
+            byStage={byStage}
+            selectedStage={selectedStage}
+            onSelect={setSelectedStage}
+            drillProjects={drillProjects}
+            lookups={lookupsQuery.data}
+            onOpenRemarks={setRemarksProject}
+          />
+        ) : (
+          <StagesTab
+            stagesActive={stagesActive}
+            onStageChange={setStagesActive}
+            byStage={byStage}
+            projects={activeStageProjects}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onSelectAll={selectAllActive}
+            onClearSelection={clearSelection}
+            canPrev={canPrev}
+            canNext={canNext}
+            canTransfer={canTransfer}
+            busy={transferState.isLoading}
+            onTransferPrev={() => void runTransfer('prev')}
+            onTransferNext={() => void runTransfer('next')}
+            lookups={lookupsQuery.data}
+          />
+        )}
       </div>
 
       {remarksProject ? (
@@ -317,6 +312,28 @@ function DashboardTab({
   lookups: Lookups | undefined;
   onOpenRemarks: (project: ProjectListItem) => void;
 }): JSX.Element {
+  // Task: Table Column Filter for the stage drill-in table — same
+  // independent-per-column pattern as StagesTab below.
+  const [colFilters, setColFilters] = useState<Record<string, string>>({});
+  const setColFilter = (key: string, value: string): void =>
+    setColFilters((prev) => ({ ...prev, [key]: value }));
+  const activeFilterCount = Object.values(colFilters).filter((v) => v.trim() !== '').length;
+
+  const divisionOptions = useMemo(() => {
+    const names = new Set((lookups?.divisions ?? []).map((d) => d.divisionName));
+    return Array.from(names).sort();
+  }, [lookups]);
+
+  const filteredDrillProjects = useMemo(() => {
+    return drillProjects.filter((p) => {
+      if (!textMatches(colFilters.projectName ?? '', p.projectName)) return false;
+      if (!selectMatches(colFilters.division ?? '', divisionNameOf(p, lookups))) return false;
+      if (!textMatches(colFilters.contractor ?? '', p.contractor)) return false;
+      if (!textMatches(colFilters.nitNumber ?? '', p.nitNumber)) return false;
+      return true;
+    });
+  }, [drillProjects, colFilters, lookups]);
+
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
@@ -361,32 +378,65 @@ function DashboardTab({
             <span className="text-[12px] font-bold text-[#111827]">
               {selectedStage}
               <span className="ml-2 text-[11px] font-normal text-[#6B7280]">
-                — {drillProjects.length} project{drillProjects.length === 1 ? '' : 's'}
+                — {activeFilterCount > 0
+                  ? `${filteredDrillProjects.length} of ${drillProjects.length} project${drillProjects.length === 1 ? '' : 's'} match ${activeFilterCount} column filter${activeFilterCount === 1 ? '' : 's'}`
+                  : `${drillProjects.length} project${drillProjects.length === 1 ? '' : 's'}`}
               </span>
             </span>
-            <button
-              type="button"
-              onClick={() => onSelect(null)}
-              className="text-[11px] font-semibold text-[#6B7280] hover:text-[#B91C1C]"
-            >
-              Clear
-            </button>
+            <div className="flex items-center gap-3">
+              {activeFilterCount > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => setColFilters({})}
+                  className="text-[11px] font-semibold text-[#B91C1C] hover:underline"
+                >
+                  Clear column filters ({activeFilterCount})
+                </button>
+              ) : null}
+              <button
+                type="button"
+                onClick={() => onSelect(null)}
+                className="text-[11px] font-semibold text-[#6B7280] hover:text-[#B91C1C]"
+              >
+                Clear
+              </button>
+            </div>
           </div>
           {drillProjects.length === 0 ? (
             <p className="px-3 py-6 text-center text-[12.5px] text-[#6B7280]">
               No projects currently in this sub-stage.
+            </p>
+          ) : filteredDrillProjects.length === 0 ? (
+            <p className="px-3 py-6 text-center text-[12.5px] text-[#6B7280]">
+              No projects match the current column filters.
             </p>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[960px] border-collapse text-[12px]">
                 <thead>
                   <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280]">
-                    <th className="px-3 py-2 text-left">Project Name</th>
-                    <th className="px-3 py-2 text-left">Division</th>
+                    <th className="px-3 py-2 text-left align-top">
+                      <div>Project Name</div>
+                      <ColumnFilterText value={colFilters.projectName ?? ''} onChange={(v) => setColFilter('projectName', v)} />
+                    </th>
+                    <th className="px-3 py-2 text-left align-top">
+                      <div>Division</div>
+                      <ColumnFilterSelect
+                        value={colFilters.division ?? ''}
+                        onChange={(v) => setColFilter('division', v)}
+                        options={divisionOptions.map((d) => ({ value: d, label: d }))}
+                      />
+                    </th>
                     <th className="px-3 py-2 text-left">Department</th>
                     <th className="px-3 py-2 text-left">Agreement Number</th>
-                    <th className="px-3 py-2 text-left">Contractor</th>
-                    <th className="px-3 py-2 text-left">NIT Number</th>
+                    <th className="px-3 py-2 text-left align-top">
+                      <div>Contractor</div>
+                      <ColumnFilterText value={colFilters.contractor ?? ''} onChange={(v) => setColFilter('contractor', v)} />
+                    </th>
+                    <th className="px-3 py-2 text-left align-top">
+                      <div>NIT Number</div>
+                      <ColumnFilterText value={colFilters.nitNumber ?? ''} onChange={(v) => setColFilter('nitNumber', v)} />
+                    </th>
                     <th className="px-3 py-2 text-left">NIT Date</th>
                     <th className="px-3 py-2 text-left">Current Sub-Stage</th>
                     <th className="px-3 py-2 text-left">Last Updated</th>
@@ -394,7 +444,7 @@ function DashboardTab({
                   </tr>
                 </thead>
                 <tbody>
-                  {drillProjects.map((p) => (
+                  {filteredDrillProjects.map((p) => (
                     <ProjectDrillRow
                       key={p.projectId}
                       project={p}
@@ -469,6 +519,13 @@ function ProjectDrillRow({
  * Project Stages tab
  * ──────────────────────────────────────────────────────────────────────── */
 
+/** Division name for a project, resolved via the lookups list (same as the row cells use). */
+function divisionNameOf(project: ProjectListItem, lookups: Lookups | undefined): string | null {
+  return project.divisionId
+    ? (lookups?.divisions.find((d) => d.divisionId === project.divisionId)?.divisionName ?? null)
+    : null;
+}
+
 function StagesTab({
   stagesActive, onStageChange, byStage, projects, selectedIds,
   onToggleSelect, onSelectAll, onClearSelection,
@@ -481,7 +538,7 @@ function StagesTab({
   projects: ProjectListItem[];
   selectedIds: Set<string>;
   onToggleSelect: (id: string) => void;
-  onSelectAll: () => void;
+  onSelectAll: (ids: string[]) => void;
   onClearSelection: () => void;
   canPrev: boolean;
   canNext: boolean;
@@ -492,6 +549,28 @@ function StagesTab({
   lookups: Lookups | undefined;
 }): JSX.Element {
   const selectionCount = selectedIds.size;
+
+  // Task: Table Column Filter for the Project Stages table — same
+  // independent-per-column pattern as every other table in the app.
+  const [colFilters, setColFilters] = useState<Record<string, string>>({});
+  const setColFilter = (key: string, value: string): void =>
+    setColFilters((prev) => ({ ...prev, [key]: value }));
+  const activeFilterCount = Object.values(colFilters).filter((v) => v.trim() !== '').length;
+
+  const divisionOptions = useMemo(() => {
+    const names = new Set((lookups?.divisions ?? []).map((d) => d.divisionName));
+    return Array.from(names).sort();
+  }, [lookups]);
+
+  const filteredProjects = useMemo(() => {
+    return projects.filter((p) => {
+      if (!textMatches(colFilters.projectName ?? '', p.projectName)) return false;
+      if (!selectMatches(colFilters.division ?? '', divisionNameOf(p, lookups))) return false;
+      if (!textMatches(colFilters.contractor ?? '', p.contractor)) return false;
+      if (!textMatches(colFilters.nitNumber ?? '', p.nitNumber)) return false;
+      return true;
+    });
+  }, [projects, colFilters, lookups]);
 
   return (
     <div className="space-y-4">
@@ -538,13 +617,13 @@ function StagesTab({
         <div className="flex items-center gap-2 text-[12px]">
           <span className="font-semibold text-[#111827]">Selected:</span>
           <span className="tabular-nums text-[#374151]">
-            {selectionCount} of {projects.length}
+            {selectionCount} of {filteredProjects.length}
           </span>
-          {projects.length > 0 ? (
+          {filteredProjects.length > 0 ? (
             <>
               <button
                 type="button"
-                onClick={onSelectAll}
+                onClick={() => onSelectAll(filteredProjects.map((p) => p.projectId))}
                 className="text-[11px] font-semibold text-[#1D4ED8] hover:underline"
                 disabled={busy}
               >
@@ -561,6 +640,15 @@ function StagesTab({
                 </button>
               ) : null}
             </>
+          ) : null}
+          {activeFilterCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setColFilters({})}
+              className="text-[11px] font-semibold text-[#B91C1C] hover:underline"
+            >
+              Clear column filters ({activeFilterCount})
+            </button>
           ) : null}
         </div>
         <div className="flex items-center gap-2">
@@ -593,7 +681,9 @@ function StagesTab({
         <div className="border-b border-[#F3F4F6] bg-[#F9FAFB] px-3 py-2 text-[12px] font-bold text-[#111827]">
           {stagesActive}
           <span className="ml-2 text-[11px] font-normal text-[#6B7280]">
-            — {projects.length} project{projects.length === 1 ? '' : 's'}
+            — {activeFilterCount > 0
+              ? `${filteredProjects.length} of ${projects.length} project${projects.length === 1 ? '' : 's'} match ${activeFilterCount} column filter${activeFilterCount === 1 ? '' : 's'}`
+              : `${projects.length} project${projects.length === 1 ? '' : 's'}`}
             {stagesActive === FINAL_TENDER_SUB_STAGE ? (
               <span className="ml-2 rounded bg-[#F0FDF4] px-1.5 py-0.5 text-[10px] font-semibold text-[#15803D]">
                 ✓ Tender complete — eligible for Construction
@@ -610,35 +700,62 @@ function StagesTab({
             <table className="w-full min-w-[860px] border-collapse text-[12px]">
               <thead>
                 <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280]">
-                  <th className="w-8 px-2 py-2">
+                  <th className="w-8 px-2 py-2 align-top">
                     <span className="sr-only">Select</span>
                   </th>
-                  <th className="px-3 py-2 text-left">Project Name</th>
-                  <th className="px-3 py-2 text-left">Division</th>
-                  <th className="px-3 py-2 text-left">Contractor</th>
-                  <th className="px-3 py-2 text-left">NIT Number</th>
-                  <th className="px-3 py-2 text-left">NIT Date</th>
+                  <th className="px-3 py-2 text-left align-top">
+                    <div>Project Name</div>
+                    <ColumnFilterText value={colFilters.projectName ?? ''} onChange={(v) => setColFilter('projectName', v)} />
+                  </th>
+                  <th className="px-3 py-2 text-left align-top">
+                    <div>Division</div>
+                    <ColumnFilterSelect
+                      value={colFilters.division ?? ''}
+                      onChange={(v) => setColFilter('division', v)}
+                      options={divisionOptions.map((d) => ({ value: d, label: d }))}
+                    />
+                  </th>
+                  <th className="px-3 py-2 text-left align-top">
+                    <div>Contractor</div>
+                    <ColumnFilterText value={colFilters.contractor ?? ''} onChange={(v) => setColFilter('contractor', v)} />
+                  </th>
+                  <th className="px-3 py-2 text-left align-top">
+                    <div>NIT Number</div>
+                    <ColumnFilterText value={colFilters.nitNumber ?? ''} onChange={(v) => setColFilter('nitNumber', v)} />
+                  </th>
+                  <th className="px-3 py-2 text-left align-top">NIT Date</th>
                   {stagesActive === 'NIT Published' ? (
-                    <th className="px-3 py-2 text-left">
+                    <th className="px-3 py-2 text-left align-top">
                       <span className="sr-only">NIT actions</span>
                     </th>
                   ) : null}
-                  <th className="px-3 py-2 text-left">Last Updated</th>
+                  <th className="px-3 py-2 text-left align-top">Last Updated</th>
                 </tr>
               </thead>
               <tbody>
-                {projects.map((p) => (
-                  <StageProjectRow
-                    key={p.projectId}
-                    project={p}
-                    lookups={lookups}
-                    checked={selectedIds.has(p.projectId)}
-                    onToggle={() => onToggleSelect(p.projectId)}
-                    disableCheckbox={!canTransfer || busy}
-                    isNitPublished={stagesActive === 'NIT Published'}
-                    canEditNit={canTransfer}
-                  />
-                ))}
+                {filteredProjects.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={stagesActive === 'NIT Published' ? 8 : 7}
+                      className="px-3 py-6 text-center text-[#6B7280]"
+                    >
+                      No projects match the current column filters.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredProjects.map((p) => (
+                    <StageProjectRow
+                      key={p.projectId}
+                      project={p}
+                      lookups={lookups}
+                      checked={selectedIds.has(p.projectId)}
+                      onToggle={() => onToggleSelect(p.projectId)}
+                      disableCheckbox={!canTransfer || busy}
+                      isNitPublished={stagesActive === 'NIT Published'}
+                      canEditNit={canTransfer}
+                    />
+                  ))
+                )}
               </tbody>
             </table>
           </div>

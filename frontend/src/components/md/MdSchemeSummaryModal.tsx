@@ -15,6 +15,7 @@ import { cn } from '../../lib/utils';
 import { formatCurrencyCr, formatDate, formatPercent } from '../../lib/formatters';
 import { downloadProjectPdf, downloadProjectPptx } from '../../lib/mdProjectExport';
 import { RemarksButton, RemarksDialog } from '../projects/RemarksDialog';
+import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../ui/ColumnFilter';
 import {
   ALL_PROJECT_KEYS,
   PROJECT_FIELD_GROUPS,
@@ -1035,6 +1036,49 @@ function PortfolioKpiBody({
 }
 
 // ── RIGHT panel: project table ───────────────────────────────────────────────
+/** Which columns get a Table Column Filter, and what kind. Computed/currency/
+ *  progress/date/action columns are deliberately left unfiltered, matching
+ *  the precedent set by every other table's column-filter treatment. */
+const FILTERABLE_COLS: Partial<Record<ColKey, 'text' | 'select'>> = {
+  projectName: 'text',
+  city: 'text',
+  district: 'select',
+  division: 'select',
+  region: 'select',
+  contractor: 'text',
+  pd: 'text',
+  sector: 'select',
+  schemes: 'text',
+  status: 'select',
+  contractType: 'select',
+  priority: 'select',
+};
+
+function colFilterValue(
+  key: ColKey,
+  p: ProjectListItem,
+  districtsById: Map<number, string>,
+  divisionsById: Map<number, { name: string; regionName: string }>,
+  sectorsById: Map<number, string>,
+  schemesById: Map<number, string>,
+): string {
+  switch (key) {
+    case 'projectName': return p.projectName;
+    case 'city': return p.city ?? '';
+    case 'district': return (p.districtId && districtsById.get(p.districtId)) || '';
+    case 'division': return (p.divisionId && divisionsById.get(p.divisionId)?.name) || '';
+    case 'region': return (p.divisionId && divisionsById.get(p.divisionId)?.regionName) || '';
+    case 'contractor': return p.contractor ?? '';
+    case 'pd': return p.pd ?? '';
+    case 'sector': return (p.sectorId && sectorsById.get(p.sectorId)) || '';
+    case 'schemes': return p.schemes.map((id) => schemesById.get(id) ?? '').join(', ');
+    case 'status': return p.status;
+    case 'contractType': return p.contractType ?? '';
+    case 'priority': return p.priority ?? '';
+    default: return '';
+  }
+}
+
 function ProjectList({
   projects, columns, activeProjectId, onSelect, onOpenRemarks,
   districtsById, divisionsById, sectorsById, schemesById,
@@ -1049,18 +1093,83 @@ function ProjectList({
   sectorsById: Map<number, string>;
   schemesById: Map<number, string>;
 }): JSX.Element {
+  const [colFilters, setColFilters] = useState<Record<string, string>>({});
+  const setColFilter = (key: string, value: string): void =>
+    setColFilters((prev) => ({ ...prev, [key]: value }));
+  const activeFilterCount = Object.values(colFilters).filter((v) => v.trim() !== '').length;
+
+  const selectOptionsByKey = useMemo(() => {
+    const result: Partial<Record<ColKey, string[]>> = {};
+    for (const c of columns) {
+      if (FILTERABLE_COLS[c.key] !== 'select') continue;
+      const values = new Set<string>();
+      for (const p of projects) {
+        const v = colFilterValue(c.key, p, districtsById, divisionsById, sectorsById, schemesById);
+        if (v) values.add(v);
+      }
+      result[c.key] = Array.from(values).sort();
+    }
+    return result;
+  }, [columns, projects, districtsById, divisionsById, sectorsById, schemesById]);
+
+  const filteredProjects = useMemo(() => {
+    return projects.filter((p) => {
+      for (const [key, kind] of Object.entries(FILTERABLE_COLS)) {
+        const filterVal = colFilters[key] ?? '';
+        if (!filterVal) continue;
+        const cellVal = colFilterValue(key as ColKey, p, districtsById, divisionsById, sectorsById, schemesById);
+        if (kind === 'select' ? !selectMatches(filterVal, cellVal) : !textMatches(filterVal, cellVal)) {
+          return false;
+        }
+      }
+      return true;
+    });
+  }, [projects, colFilters, districtsById, divisionsById, sectorsById, schemesById]);
+
   return (
     <div className="overflow-x-auto rounded-lg border border-[#E5E7EB] bg-white shadow-sm">
+      {activeFilterCount > 0 ? (
+        <div className="flex items-center justify-between border-b border-[#F3F4F6] bg-[#F9FAFB] px-3 py-1.5 text-[11px] text-[#6B7280]">
+          <span>{filteredProjects.length} of {projects.length} projects match {activeFilterCount} column filter{activeFilterCount === 1 ? '' : 's'}</span>
+          <button
+            type="button"
+            onClick={() => setColFilters({})}
+            className="text-[11px] font-semibold text-[#1D4ED8] hover:underline"
+          >
+            Clear column filters ({activeFilterCount})
+          </button>
+        </div>
+      ) : null}
       <table className="w-full min-w-[720px] border-collapse text-[12px]">
         <thead>
           <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280]">
-            {columns.map((c) => (
-              <th key={c.key} className="whitespace-nowrap px-3 py-2 text-left">{c.label}</th>
-            ))}
+            {columns.map((c) => {
+              const kind = FILTERABLE_COLS[c.key];
+              return (
+                <th key={c.key} className="whitespace-nowrap px-3 py-2 text-left align-top">
+                  <div>{c.label}</div>
+                  {kind === 'text' ? (
+                    <ColumnFilterText value={colFilters[c.key] ?? ''} onChange={(v) => setColFilter(c.key, v)} />
+                  ) : kind === 'select' ? (
+                    <ColumnFilterSelect
+                      value={colFilters[c.key] ?? ''}
+                      onChange={(v) => setColFilter(c.key, v)}
+                      options={(selectOptionsByKey[c.key] ?? []).map((v) => ({ value: v, label: v }))}
+                    />
+                  ) : null}
+                </th>
+              );
+            })}
           </tr>
         </thead>
         <tbody>
-          {projects.map((p, idx) => {
+          {filteredProjects.length === 0 ? (
+            <tr>
+              <td colSpan={columns.length} className="px-3 py-6 text-center text-[12.5px] text-[#6B7280]">
+                No projects match the current column filters.
+              </td>
+            </tr>
+          ) : filteredProjects.map((p, idx) => {
             const isActive = p.projectId === activeProjectId;
             return (
               <tr

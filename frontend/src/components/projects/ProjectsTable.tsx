@@ -7,6 +7,7 @@ import { daysBetween, formatCurrencyCr, formatDate, formatPercent } from '../../
 import { downloadProjectsExcel, downloadProjectsPdf, downloadProjectsPptx } from '../../lib/projectsExport';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
+import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches, minMatches } from '../ui/ColumnFilter';
 import { OmAlertCell } from './OmAlertCell';
 import { PbgAlertCell } from './PbgAlertCell';
 import { PriorityBadge } from './PriorityBadge';
@@ -396,6 +397,78 @@ const COLUMNS: Column[] = [
 
 export const ALL_COLUMN_KEYS = COLUMNS.map((c) => c.key);
 
+/** Same joined-names text the 'schemes' column already exports, reused for its filter. */
+function schemesText(row: ProjectListItem, ctx: LookupCtx): string {
+  if (!row.schemes || row.schemes.length === 0) return '';
+  return row.schemes.map((id) => ctx.schemeById.get(id) ?? `#${id}`).join(', ');
+}
+
+/** Mirrors the Project Stage / Contract Type / Execution Status / Priority
+ *  option lists already used by ProjectsFilterBar, for consistency. */
+const STAGE_OPTIONS = ['Conceptualisation', 'Design', 'Pre-Tender', 'Tender', 'Construction', 'O&M', 'Other'];
+const CONTRACT_TYPE_OPTIONS = ['Work Contract', 'Service Contract', 'O&M Contract', 'Others'];
+const STATUS_OPTIONS = ['Not Started', 'In Progress', 'Completed', 'On Hold', 'Delayed'];
+const PRIORITY_OPTIONS = ['High', 'Medium', 'Low', 'N/A'];
+
+type FilterConfig =
+  | { kind: 'text'; getValue: (row: ProjectListItem, ctx: LookupCtx) => string | null | undefined }
+  | { kind: 'min'; getValue: (row: ProjectListItem) => number | null | undefined; placeholder: string }
+  | {
+      kind: 'select';
+      getValue: (row: ProjectListItem, ctx: LookupCtx) => string | null | undefined;
+      getOptions: (ctx: LookupCtx, lookups: Lookups | undefined) => string[];
+    };
+
+/**
+ * Task: Table Column Filter for Projects — matches the same per-column
+ * filter behavior already on the Sectors/Schemes/Divisions/CoS-EoT/
+ * Management Action/O&M tables. Lookup-backed selects (District/Division/
+ * Region/Sector) filter by the resolved NAME (what the cell actually
+ * displays), not the raw id. Columns not listed here (S.No., PBG/O&M alert
+ * cells, GeoTag link, dates) are computed/visual/date fields, left
+ * unfiltered — consistent with how the other tables treat that class of
+ * column.
+ */
+const FILTER_CONFIG: Record<string, FilterConfig> = {
+  projectName: { kind: 'text', getValue: (r) => r.projectName },
+  city: { kind: 'text', getValue: (r) => r.city },
+  district: {
+    kind: 'select',
+    getValue: (r, ctx) => (r.districtId ? (ctx.districtById.get(r.districtId) ?? null) : null),
+    getOptions: (_ctx, lookups) => (lookups?.districts ?? []).map((d) => d.districtName),
+  },
+  division: {
+    kind: 'select',
+    getValue: (r, ctx) => (r.divisionId ? (ctx.divisionById.get(r.divisionId)?.name ?? null) : null),
+    getOptions: (_ctx, lookups) => (lookups?.divisions ?? []).map((d) => d.divisionName),
+  },
+  region: {
+    kind: 'select',
+    getValue: (r, ctx) => (r.divisionId ? (ctx.divisionById.get(r.divisionId)?.regionName ?? null) : null),
+    getOptions: (_ctx, lookups) => (lookups?.regions ?? []).map((rg) => rg.regionName),
+  },
+  contractor: { kind: 'text', getValue: (r) => r.contractor },
+  pd: { kind: 'text', getValue: (r) => r.pd },
+  sectorName: {
+    kind: 'select',
+    getValue: (r, ctx) => (r.sectorId ? (ctx.sectorById.get(r.sectorId) ?? null) : null),
+    getOptions: (_ctx, lookups) => (lookups?.sectors ?? []).map((s) => s.sectorName),
+  },
+  schemes: { kind: 'text', getValue: (r, ctx) => schemesText(r, ctx) },
+  projectStageV2: { kind: 'select', getValue: (r) => r.projectStageV2, getOptions: () => STAGE_OPTIONS },
+  contractType: { kind: 'select', getValue: (r) => r.contractType, getOptions: () => CONTRACT_TYPE_OPTIONS },
+  aaAmountCr: { kind: 'min', getValue: (r) => r.aaAmountCr, placeholder: '≥ Cr' },
+  revisedAaAmountCr: { kind: 'min', getValue: (r) => r.revisedAaAmountCr, placeholder: '≥ Cr' },
+  agreementAmountCr: { kind: 'min', getValue: (r) => r.agreementAmountCr, placeholder: '≥ Cr' },
+  physicalProgressPct: { kind: 'min', getValue: (r) => r.effectivePhysicalPct ?? r.physicalProgressPct, placeholder: '≥ %' },
+  financialProgressCr: { kind: 'min', getValue: (r) => r.financialProgressCr, placeholder: '≥ Cr' },
+  financialProgressPct: { kind: 'min', getValue: (r) => r.financialProgressPct, placeholder: '≥ %' },
+  status: { kind: 'select', getValue: (r) => r.status, getOptions: () => STATUS_OPTIONS },
+  remark: { kind: 'text', getValue: (r) => r.remark },
+  priority: { kind: 'select', getValue: (r) => r.priority, getOptions: () => PRIORITY_OPTIONS },
+  nitNumber: { kind: 'text', getValue: (r) => r.nitNumber },
+};
+
 const LS_KEY = 'buidco.projects.columnVisibility.v1';
 
 function loadVisibility(): Record<string, boolean> {
@@ -438,6 +511,14 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
   const exportMenuRef = useRef<HTMLDivElement>(null);
   useClickOutside(exportMenuRef, showExportMenu, () => setShowExportMenu(false));
 
+  // Task: Table Column Filter — each filterable column narrows the table
+  // independently, combined with AND, layered on top of the existing
+  // sort/visibility/download features without touching any of them.
+  const [colFilters, setColFilters] = useState<Record<string, string>>({});
+  const setColFilter = (key: string, value: string): void =>
+    setColFilters((prev) => ({ ...prev, [key]: value }));
+  const activeFilterCount = Object.values(colFilters).filter((v) => v.trim() !== '').length;
+
   const ctx = useMemo<LookupCtx>(() => {
     const regionById = new Map(
       (lookups?.regions ?? []).map((r) => [r.regionId, r.regionName]),
@@ -455,6 +536,28 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
     };
   }, [lookups]);
 
+  const matchesAllFilters = (row: ProjectListItem): boolean => {
+    for (const [key, filterValue] of Object.entries(colFilters)) {
+      if (filterValue.trim() === '') continue;
+      const config = FILTER_CONFIG[key];
+      if (!config) continue;
+      if (config.kind === 'min') {
+        if (!minMatches(filterValue, config.getValue(row))) return false;
+      } else if (config.kind === 'select') {
+        if (!selectMatches(filterValue, config.getValue(row, ctx))) return false;
+      } else {
+        if (!textMatches(filterValue, config.getValue(row, ctx))) return false;
+      }
+    }
+    return true;
+  };
+
+  const filteredRows = useMemo(
+    () => rows.filter(matchesAllFilters),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- matchesAllFilters closes over colFilters/ctx, both already deps
+    [rows, colFilters, ctx],
+  );
+
   const visibleColumns = COLUMNS.filter((c) => visibility[c.key] !== false);
   const toggle = (key: string): void => {
     setVisibility((prev) => {
@@ -471,10 +574,10 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
   };
 
   const sortedRows = useMemo(() => {
-    if (sortKey === 'sno') return rows;
+    if (sortKey === 'sno') return filteredRows;
     const col = COLUMNS.find((c) => c.key === sortKey);
-    if (!col?.sortValue) return rows;
-    const arr = [...rows];
+    if (!col?.sortValue) return filteredRows;
+    const arr = [...filteredRows];
     arr.sort((a, b) => {
       const av = col.sortValue!(a);
       const bv = col.sortValue!(b);
@@ -485,7 +588,7 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
       return 0;
     });
     return arr;
-  }, [rows, sortKey, sortDir]);
+  }, [filteredRows, sortKey, sortDir]);
 
   const onSort = (key: string): void => {
     if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
@@ -501,7 +604,9 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
     setExportError(null);
     setExporting(format);
     try {
-      const allRows = await fetchAllRows();
+      // Column filters apply to the export too, same as visible columns —
+      // fetchAllRows() bypasses pagination but not the user's column filters.
+      const allRows = (await fetchAllRows()).filter(matchesAllFilters);
       if (format === 'excel') await downloadProjectsExcel(visibleColumns, allRows, ctx);
       else if (format === 'pdf') await downloadProjectsPdf(visibleColumns, allRows, ctx);
       else await downloadProjectsPptx(visibleColumns, allRows, ctx);
@@ -519,8 +624,19 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
     <div className="rounded-lg border border-[#E5E7EB] bg-white shadow-sm">
       <div className="flex items-center justify-between border-b border-[#F3F4F6] px-3 py-2">
         <span className="text-[10.5px] font-semibold uppercase tracking-wider text-[#6B7280]">
-          {rows.length} project{rows.length === 1 ? '' : 's'} on this page
+          {activeFilterCount > 0
+            ? `${filteredRows.length} of ${rows.length} project${rows.length === 1 ? '' : 's'} match ${activeFilterCount} column filter${activeFilterCount === 1 ? '' : 's'}`
+            : `${rows.length} project${rows.length === 1 ? '' : 's'} on this page`}
           {isFetching ? ' · refreshing…' : ''}
+          {activeFilterCount > 0 ? (
+            <button
+              type="button"
+              onClick={() => setColFilters({})}
+              className="ml-2 normal-case text-[#B91C1C] hover:underline"
+            >
+              Clear column filters
+            </button>
+          ) : null}
           {exportError ? <span className="ml-2 normal-case text-[#B91C1C]">{exportError}</span> : null}
         </span>
         <div className="flex items-center gap-2">
@@ -608,30 +724,51 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
         <table className="w-full min-w-[960px] border-collapse text-xs">
           <thead className="bg-[#F9FAFB]">
             <tr>
-              {visibleColumns.map((c) => (
-                <th
-                  key={c.key}
-                  scope="col"
-                  className={cn(
-                    'sticky top-0 z-10 whitespace-nowrap border-b border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-[10.5px] font-semibold uppercase tracking-wider text-[#374151]',
-                    c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : 'text-left',
-                  )}
-                  style={c.minWidth ? { minWidth: c.minWidth } : undefined}
-                >
-                  {c.sortValue ? (
-                    <button
-                      type="button"
-                      onClick={() => onSort(c.key)}
-                      className="cursor-pointer hover:text-[#1E3A5F]"
-                    >
-                      {c.label}
-                      <span aria-hidden>{arrow(c.key)}</span>
-                    </button>
-                  ) : (
-                    c.label
-                  )}
-                </th>
-              ))}
+              {visibleColumns.map((c) => {
+                const filter = FILTER_CONFIG[c.key];
+                return (
+                  <th
+                    key={c.key}
+                    scope="col"
+                    className={cn(
+                      'sticky top-0 z-10 whitespace-nowrap align-top border-b border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-[10.5px] font-semibold uppercase tracking-wider text-[#374151]',
+                      c.align === 'right' ? 'text-right' : c.align === 'center' ? 'text-center' : 'text-left',
+                    )}
+                    style={c.minWidth ? { minWidth: c.minWidth } : undefined}
+                  >
+                    <div>
+                      {c.sortValue ? (
+                        <button
+                          type="button"
+                          onClick={() => onSort(c.key)}
+                          className="cursor-pointer hover:text-[#1E3A5F]"
+                        >
+                          {c.label}
+                          <span aria-hidden>{arrow(c.key)}</span>
+                        </button>
+                      ) : (
+                        c.label
+                      )}
+                    </div>
+                    {filter ? (
+                      filter.kind === 'select' ? (
+                        <ColumnFilterSelect
+                          value={colFilters[c.key] ?? ''}
+                          onChange={(v) => setColFilter(c.key, v)}
+                          options={filter.getOptions(ctx, lookups).map((o) => ({ value: o, label: o }))}
+                        />
+                      ) : (
+                        <ColumnFilterText
+                          value={colFilters[c.key] ?? ''}
+                          onChange={(v) => setColFilter(c.key, v)}
+                          align={c.align === 'right' ? 'right' : 'left'}
+                          {...(filter.kind === 'min' ? { placeholder: filter.placeholder } : {})}
+                        />
+                      )
+                    ) : null}
+                  </th>
+                );
+              })}
             </tr>
           </thead>
           <tbody>

@@ -14,6 +14,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
 import { FormField } from '../components/input-sheet/FormField';
+import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../components/ui/ColumnFilter';
 import { cn } from '../lib/utils';
 import { formatDate } from '../lib/formatters';
 import type { CreateUserPayload, UpdateUserPayload, UserRole, UserRow } from '../types/api';
@@ -68,6 +69,29 @@ export function UserManagementPage(): JSX.Element {
     return map;
   }, [rows]);
 
+  const [colFilters, setColFilters] = useState<Record<string, string>>({});
+  const setColFilter = (key: string, value: string): void =>
+    setColFilters((prev) => ({ ...prev, [key]: value }));
+  const activeFilterCount = Object.values(colFilters).filter((v) => v.trim() !== '').length;
+
+  const roleFilterOptions = rolesAvailable.map((r) => ({ value: r, label: r }));
+  const statusFilterOptions = [
+    { value: 'Active', label: 'Active' },
+    { value: 'Inactive', label: 'Inactive' },
+  ];
+
+  const filteredRows = useMemo(
+    () =>
+      rows.filter((u) => {
+        if (!textMatches(colFilters.username ?? '', u.username)) return false;
+        if (!textMatches(colFilters.fullName ?? '', u.fullName)) return false;
+        if (!selectMatches(colFilters.role ?? '', u.role)) return false;
+        if (!selectMatches(colFilters.status ?? '', u.isActive ? 'Active' : 'Inactive')) return false;
+        return true;
+      }),
+    [rows, colFilters],
+  );
+
   return (
     <RoleGate
       allow={['MD', 'Admin', 'PD']}
@@ -121,27 +145,64 @@ export function UserManagementPage(): JSX.Element {
         ) : (
           <Card>
             <CardContent className="p-0">
+              <div className="flex items-center justify-between border-b border-[#F3F4F6] bg-[#F9FAFB] px-3 py-2 text-[11.5px] font-bold text-[#374151]">
+                <span>Users ({filteredRows.length}{activeFilterCount > 0 ? ` of ${rows.length}` : ''})</span>
+                {activeFilterCount > 0 ? (
+                  <button
+                    type="button"
+                    onClick={() => setColFilters({})}
+                    className="text-[11px] font-semibold text-[#1D4ED8] hover:underline"
+                  >
+                    Clear column filters ({activeFilterCount})
+                  </button>
+                ) : null}
+              </div>
+              {filteredRows.length === 0 ? (
+                <div className="p-6 text-center text-[12.5px] text-[#6B7280]">
+                  No users match the current column filters.
+                </div>
+              ) : (
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[960px] border-collapse text-[12.5px]">
                   <thead>
                     <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280]">
                       <th className="px-3 py-2 text-left">#</th>
-                      <th className="px-3 py-2 text-left">Username</th>
-                      <th className="px-3 py-2 text-left">Full name</th>
-                      <th className="px-3 py-2 text-left">Role</th>
+                      <th className="px-3 py-2 text-left align-top">
+                        <div>Username</div>
+                        <ColumnFilterText value={colFilters.username ?? ''} onChange={(v) => setColFilter('username', v)} />
+                      </th>
+                      <th className="px-3 py-2 text-left align-top">
+                        <div>Full name</div>
+                        <ColumnFilterText value={colFilters.fullName ?? ''} onChange={(v) => setColFilter('fullName', v)} />
+                      </th>
+                      <th className="px-3 py-2 text-left align-top">
+                        <div>Role</div>
+                        <ColumnFilterSelect
+                          value={colFilters.role ?? ''}
+                          onChange={(v) => setColFilter('role', v)}
+                          options={roleFilterOptions}
+                        />
+                      </th>
                       <th className="px-3 py-2 text-left">Divisions (PD)</th>
                       <th className="px-3 py-2 text-center">View</th>
                       <th className="px-3 py-2 text-center">Create</th>
                       <th className="px-3 py-2 text-center">Update</th>
                       <th className="px-3 py-2 text-center">Delete</th>
-                      <th className="px-3 py-2 text-left">Status</th>
+                      <th className="px-3 py-2 text-left align-top">
+                        <div>Status</div>
+                        <ColumnFilterSelect
+                          value={colFilters.status ?? ''}
+                          onChange={(v) => setColFilter('status', v)}
+                          options={statusFilterOptions}
+                        />
+                      </th>
                       <th className="px-3 py-2 text-left">Created by</th>
                       <th className="px-3 py-2 text-left">Last login</th>
                       <th className="px-3 py-2 text-left">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {rows.map((u, idx) => {
+                    {filteredRows.map((u, idx) => {
                       const canEdit =
                         me?.role === 'MD'
                         || (me?.role === 'Admin' && (u.role === 'Viewer' || u.role === 'PD'));
@@ -261,6 +322,7 @@ export function UserManagementPage(): JSX.Element {
                   </tbody>
                 </table>
               </div>
+              )}
             </CardContent>
           </Card>
         )}

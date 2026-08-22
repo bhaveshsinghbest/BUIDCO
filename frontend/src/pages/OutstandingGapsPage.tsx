@@ -6,10 +6,12 @@ import { PriorityBadge } from '../components/projects/PriorityBadge';
 import { StatusBadge } from '../components/projects/StatusBadge';
 import { Card, CardContent } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
+import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../components/ui/ColumnFilter';
 import { cn } from '../lib/utils';
-import type { Priority } from '../types/api';
+import type { Priority, ProjectStatus } from '../types/api';
 
 const PRIORITY_FILTERS: Array<Priority | 'All'> = ['All', 'High', 'Medium', 'Low', 'N/A'];
+const STATUS_OPTIONS: ProjectStatus[] = ['Not Started', 'In Progress', 'Completed', 'On Hold', 'Delayed'];
 
 export function OutstandingGapsPage(): JSX.Element {
   const { data, isLoading } = useGetOutstandingGapsQuery();
@@ -28,6 +30,22 @@ export function OutstandingGapsPage(): JSX.Element {
     return map;
   }, [lookups.data]);
 
+  const [colFilters, setColFilters] = useState<Record<string, string>>({});
+  const setColFilter = (key: string, value: string): void =>
+    setColFilters((prev) => ({ ...prev, [key]: value }));
+  const activeFilterCount = Object.values(colFilters).filter((v) => v.trim() !== '').length;
+
+  const sectorFilterOptions = useMemo(() => {
+    const names = new Set((lookups.data?.sectors ?? []).map((s) => s.sectorName));
+    return Array.from(names).sort().map((n) => ({ value: n, label: n }));
+  }, [lookups.data]);
+  const districtFilterOptions = useMemo(() => {
+    const names = new Set((lookups.data?.districts ?? []).map((d) => d.districtName));
+    return Array.from(names).sort().map((n) => ({ value: n, label: n }));
+  }, [lookups.data]);
+  const priorityFilterOptions = (['High', 'Medium', 'Low', 'N/A'] as Priority[]).map((p) => ({ value: p, label: p }));
+  const statusFilterOptions = STATUS_OPTIONS.map((s) => ({ value: s, label: s }));
+
   const rows = useMemo(() => {
     const all = data?.items ?? [];
     const term = search.trim().toLowerCase();
@@ -40,8 +58,19 @@ export function OutstandingGapsPage(): JSX.Element {
         return name.includes(term) || remark.includes(term);
       });
     }
+    subset = subset.filter((r) => {
+      const sectorName = r.sectorId ? sectorsById.get(r.sectorId) ?? '' : '';
+      const districtName = r.districtId ? districtsById.get(r.districtId) ?? '' : '';
+      if (!textMatches(colFilters.project ?? '', r.projectName)) return false;
+      if (!selectMatches(colFilters.sector ?? '', sectorName)) return false;
+      if (!selectMatches(colFilters.district ?? '', districtName)) return false;
+      if (!selectMatches(colFilters.priority ?? '', r.priority ?? 'N/A')) return false;
+      if (!selectMatches(colFilters.status ?? '', r.status)) return false;
+      if (!textMatches(colFilters.remark ?? '', r.remark)) return false;
+      return true;
+    });
     return subset;
-  }, [data, priority, search]);
+  }, [data, priority, search, colFilters, sectorsById, districtsById]);
 
   const counts = useMemo(() => {
     const all = data?.items ?? [];
@@ -97,63 +126,94 @@ export function OutstandingGapsPage(): JSX.Element {
             </div>
           ) : rows.length === 0 ? (
             <div className="p-6 text-center text-[12.5px] text-[#6B7280]">
-              {priority === 'All' && !search
-                ? 'No outstanding gaps recorded. 🎉'
+              {priority === 'All' && !search && activeFilterCount === 0
+                ? 'No outstanding gaps recorded. \u{1F389}'
                 : 'No gaps match the current filter.'}
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[860px] border-collapse text-[12.5px]">
-                <thead>
-                  <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280]">
-                    <th className="px-4 py-2 text-left">#</th>
-                    <th className="px-4 py-2 text-left">Project</th>
-                    <th className="px-4 py-2 text-left">Sector</th>
-                    <th className="px-4 py-2 text-left">District</th>
-                    <th className="px-4 py-2 text-left">Priority</th>
-                    <th className="px-4 py-2 text-left">Status</th>
-                    <th className="px-4 py-2 text-left">Gap / Remark</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r, idx) => (
-                    <tr
-                      key={r.projectId}
-                      className={cn(
-                        'border-b border-[#F3F4F6] align-top hover:bg-[#F9FAFB]',
-                        idx % 2 === 1 && 'bg-[#FAFAFA]',
-                      )}
-                    >
-                      <td className="px-4 py-2 text-[#9CA3AF]">{idx + 1}</td>
-                      <td className="px-4 py-2">
-                        <NavLink
-                          to={`/projects/${r.projectId}`}
-                          className="font-semibold text-[#1D4ED8] hover:underline"
-                        >
-                          {r.projectName ?? r.projectId}
-                        </NavLink>
-                      </td>
-                      <td className="px-4 py-2 text-[#374151]">
-                        {r.sectorId ? sectorsById.get(r.sectorId) ?? `#${r.sectorId}` : '—'}
-                      </td>
-                      <td className="px-4 py-2 text-[#374151]">
-                        {r.districtId ? districtsById.get(r.districtId) ?? `#${r.districtId}` : '—'}
-                      </td>
-                      <td className="px-4 py-2">
-                        <PriorityBadge priority={r.priority} />
-                      </td>
-                      <td className="px-4 py-2">
-                        <StatusBadge status={r.status} />
-                      </td>
-                      <td className="px-4 py-2 text-[#B91C1C]">
-                        <span className="mr-1">⚠</span>
-                        <span className="whitespace-pre-line">{r.remark ?? '—'}</span>
-                      </td>
+            <>
+              {activeFilterCount > 0 ? (
+                <div className="flex items-center justify-end border-b border-[#F3F4F6] bg-[#F9FAFB] px-4 py-1.5">
+                  <button
+                    type="button"
+                    onClick={() => setColFilters({})}
+                    className="text-[11px] font-semibold text-[#1D4ED8] hover:underline"
+                  >
+                    Clear column filters ({activeFilterCount})
+                  </button>
+                </div>
+              ) : null}
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[860px] border-collapse text-[12.5px]">
+                  <thead>
+                    <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280]">
+                      <th className="px-4 py-2 text-left">#</th>
+                      <th className="px-4 py-2 text-left align-top">
+                        <div>Project</div>
+                        <ColumnFilterText value={colFilters.project ?? ''} onChange={(v) => setColFilter('project', v)} />
+                      </th>
+                      <th className="px-4 py-2 text-left align-top">
+                        <div>Sector</div>
+                        <ColumnFilterSelect value={colFilters.sector ?? ''} onChange={(v) => setColFilter('sector', v)} options={sectorFilterOptions} />
+                      </th>
+                      <th className="px-4 py-2 text-left align-top">
+                        <div>District</div>
+                        <ColumnFilterSelect value={colFilters.district ?? ''} onChange={(v) => setColFilter('district', v)} options={districtFilterOptions} />
+                      </th>
+                      <th className="px-4 py-2 text-left align-top">
+                        <div>Priority</div>
+                        <ColumnFilterSelect value={colFilters.priority ?? ''} onChange={(v) => setColFilter('priority', v)} options={priorityFilterOptions} />
+                      </th>
+                      <th className="px-4 py-2 text-left align-top">
+                        <div>Status</div>
+                        <ColumnFilterSelect value={colFilters.status ?? ''} onChange={(v) => setColFilter('status', v)} options={statusFilterOptions} />
+                      </th>
+                      <th className="px-4 py-2 text-left align-top">
+                        <div>Gap / Remark</div>
+                        <ColumnFilterText value={colFilters.remark ?? ''} onChange={(v) => setColFilter('remark', v)} />
+                      </th>
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+                  </thead>
+                  <tbody>
+                    {rows.map((r, idx) => (
+                      <tr
+                        key={r.projectId}
+                        className={cn(
+                          'border-b border-[#F3F4F6] align-top hover:bg-[#F9FAFB]',
+                          idx % 2 === 1 && 'bg-[#FAFAFA]',
+                        )}
+                      >
+                        <td className="px-4 py-2 text-[#9CA3AF]">{idx + 1}</td>
+                        <td className="px-4 py-2">
+                          <NavLink
+                            to={`/projects/${r.projectId}`}
+                            className="font-semibold text-[#1D4ED8] hover:underline"
+                          >
+                            {r.projectName ?? r.projectId}
+                          </NavLink>
+                        </td>
+                        <td className="px-4 py-2 text-[#374151]">
+                          {r.sectorId ? sectorsById.get(r.sectorId) ?? `#${r.sectorId}` : '—'}
+                        </td>
+                        <td className="px-4 py-2 text-[#374151]">
+                          {r.districtId ? districtsById.get(r.districtId) ?? `#${r.districtId}` : '—'}
+                        </td>
+                        <td className="px-4 py-2">
+                          <PriorityBadge priority={r.priority} />
+                        </td>
+                        <td className="px-4 py-2">
+                          <StatusBadge status={r.status} />
+                        </td>
+                        <td className="px-4 py-2 text-[#B91C1C]">
+                          <span className="mr-1">⚠</span>
+                          <span className="whitespace-pre-line">{r.remark ?? '—'}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>

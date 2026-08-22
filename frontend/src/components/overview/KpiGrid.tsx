@@ -107,6 +107,7 @@ export function KpiGrid({ data, isVisible }: KpiGridProps): JSX.Element {
               hint="Administrative approval"
               tone="brand"
               icon="₹"
+              to="/projects"
             />
           ) : null}
           {isVisible('totalAgreement') ? (
@@ -116,6 +117,7 @@ export function KpiGrid({ data, isVisible }: KpiGridProps): JSX.Element {
               hint="Contract value across portfolio"
               tone="info"
               icon="✍️"
+              to="/projects"
             />
           ) : null}
           {isVisible('avgPhysical') ? (
@@ -125,6 +127,7 @@ export function KpiGrid({ data, isVisible }: KpiGridProps): JSX.Element {
               hint="Milestone-weighted where available"
               tone="info"
               icon="🏗️"
+              to="/projects"
             />
           ) : null}
           {isVisible('avgFinancial') ? (
@@ -134,6 +137,7 @@ export function KpiGrid({ data, isVisible }: KpiGridProps): JSX.Element {
               hint="Average across all projects"
               tone="success"
               icon="📈"
+              to="/projects"
             />
           ) : null}
         </div>

@@ -72,7 +72,7 @@ export function UserPill({ compact = false }: Props): JSX.Element {
         </div>
         <button
           type="button"
-          onClick={onSignOut}
+          onClick={() => void onSignOut()}
           disabled={loggingOut}
           aria-label={loggingOut ? 'Signing out…' : 'Sign out'}
           title={loggingOut ? 'Signing out…' : 'Sign out'}
@@ -110,7 +110,7 @@ export function UserPill({ compact = false }: Props): JSX.Element {
       </div>
       <button
         type="button"
-        onClick={onSignOut}
+        onClick={() => void onSignOut()}
         disabled={loggingOut}
         className="ml-1 shrink-0 cursor-pointer rounded border border-transparent bg-white px-2 py-1 text-[10.5px] font-medium text-[#6B7280] transition-colors hover:border-[#FCA5A5] hover:bg-[#FEF2F2] hover:text-[#B91C1C] disabled:opacity-60"
       >

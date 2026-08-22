@@ -173,6 +173,16 @@ export function SchemesPage(): JSX.Element {
         />
       ) : null}
 
+      {/* Visual separator (bhaveshTask.md) — distinguishes the block-level
+          metrics/drill-in above from the individual scheme cards below. */}
+      <div className="flex items-center gap-3 py-1" role="separator" aria-orientation="horizontal">
+        <div className="h-px flex-1 bg-gradient-to-r from-transparent via-[#CBD5E1] to-[#CBD5E1]" />
+        <span className="text-[10.5px] font-bold uppercase tracking-wider text-[#9CA3AF]">
+          All Schemes
+        </span>
+        <div className="h-px flex-1 bg-gradient-to-l from-transparent via-[#CBD5E1] to-[#CBD5E1]" />
+      </div>
+
       {summary.isLoading ? (
         <Skeleton className="h-40 w-full" />
       ) : (summary.data?.items ?? []).length === 0 ? (
