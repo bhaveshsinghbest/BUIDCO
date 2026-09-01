@@ -67,6 +67,12 @@ export type TenderSubStage =
   | 'Agreement Signing'
   | 'Work Order Issued';
 export type Priority = 'High' | 'Medium' | 'Low' | 'N/A';
+export type FundingSource =
+  | 'Central - EAP'
+  | 'Central - Non-EAP'
+  | 'Central - State Share'
+  | 'State Funded';
+export type FundsUcStatus = 'Submitted' | 'Pending' | 'Overdue';
 export type OmStatusOverride =
   | 'Not Started'
   | 'Ongoing'
@@ -724,6 +730,33 @@ export interface PreMonsoonUpsertPayload {
   priority?: Priority | null;
   deadlineDate?: string | null;
 }
+
+export interface FundsUcEntry {
+  fundsUcId: number;
+  projectId: string;
+  fundingSource: FundingSource;
+  openingBalanceCr: number;
+  grantReceivedCr: number;
+  expenditureIncurredCr: number;
+  sanctionNo: string | null;
+  ucSubmittedDate: string | null;
+  remarks: string | null;
+  createdAt: string;
+  lastUpdated: string | null;
+}
+
+export interface FundsUcCreatePayload {
+  projectId: string;
+  fundingSource: FundingSource;
+  openingBalanceCr?: number;
+  grantReceivedCr?: number;
+  expenditureIncurredCr?: number;
+  sanctionNo?: string | null;
+  ucSubmittedDate?: string | null;
+  remarks?: string | null;
+}
+
+export type FundsUcUpdatePayload = Partial<Omit<FundsUcCreatePayload, 'projectId'>>;
 
 export interface GeoPhoto {
   photoId: number;

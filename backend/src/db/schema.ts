@@ -330,6 +330,29 @@ export const preMonsoonItem = pgTable('pre_monsoon_item', {
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
 
+export const projectFundsUc = pgTable(
+  'project_funds_uc',
+  {
+    fundsUcId: serial('funds_uc_id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .unique()
+      .references(() => project.projectId, { onDelete: 'cascade' }),
+    fundingSource: varchar('funding_source', { length: 30 }).notNull(),
+    openingBalanceCr: numeric('opening_balance_cr', { precision: 12, scale: 2 }).notNull().default('0'),
+    grantReceivedCr: numeric('grant_received_cr', { precision: 12, scale: 2 }).notNull().default('0'),
+    expenditureIncurredCr: numeric('expenditure_incurred_cr', { precision: 12, scale: 2 }).notNull().default('0'),
+    sanctionNo: varchar('sanction_no', { length: 80 }),
+    ucSubmittedDate: date('uc_submitted_date'),
+    remarks: text('remarks'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+    lastUpdated: timestamp('last_updated', { withTimezone: true }),
+  },
+  (t) => ({
+    fundingSourceIdx: index('idx_funds_uc_funding_source').on(t.fundingSource),
+  }),
+);
+
 export const minutesOfMeeting = pgTable(
   'minutes_of_meeting',
   {
@@ -557,6 +580,9 @@ export type GeoPhotoInsert = typeof geoPhoto.$inferInsert;
 
 export type PreMonsoonItem = typeof preMonsoonItem.$inferSelect;
 export type PreMonsoonItemInsert = typeof preMonsoonItem.$inferInsert;
+
+export type ProjectFundsUc = typeof projectFundsUc.$inferSelect;
+export type ProjectFundsUcInsert = typeof projectFundsUc.$inferInsert;
 
 export type MinutesOfMeeting = typeof minutesOfMeeting.$inferSelect;
 export type MinutesOfMeetingInsert = typeof minutesOfMeeting.$inferInsert;

@@ -23,6 +23,7 @@
     "db:seed-dummy-projects": "tsx src/db/seedDummyProjects.ts",
     "db:seed-dummy-tender": "tsx src/db/seedDummyTenderProjects.ts",
     "db:seed-dummy-premonsoon": "tsx src/db/seedDummyPreMonsoon.ts",
+    "db:seed-dummy-funds-uc": "tsx src/db/seedDummyFundsUc.ts",
     "db:seed-dummy-pds": "tsx src/db/seedDummyPDs.ts",
     "db:studio": "drizzle-kit studio",
     "db:backfill-divisions": "tsx src/scripts/backfillDivisions.ts",

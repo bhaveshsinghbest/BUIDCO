@@ -49,6 +49,9 @@ export interface StatCardProps {
   icon?: React.ReactNode;
   tone?: Tone;
   to?: string;
+  /** Alternative to `to` for cards that act on the current page (scroll to
+   *  a section, apply a filter) instead of navigating to a different route. */
+  onClick?: () => void;
   disabled?: boolean;
   ariaLabel?: string;
 }
@@ -60,6 +63,7 @@ export function StatCard({
   icon,
   tone = 'brand',
   to,
+  onClick,
   disabled,
   ariaLabel,
 }: StatCardProps): JSX.Element {
@@ -89,10 +93,11 @@ export function StatCard({
     </>
   );
 
+  const interactive = (Boolean(to) || Boolean(onClick)) && !disabled;
   const containerClass = cn(
-    'group block rounded-lg border border-[#E5E7EB] bg-white p-3 shadow-sm transition-all',
+    'group block w-full rounded-lg border border-[#E5E7EB] bg-white p-3 text-left shadow-sm transition-all',
     styles.border,
-    to && !disabled ? cn('cursor-pointer hover:-translate-y-0.5 hover:shadow-md', styles.hoverRing) : '',
+    interactive ? cn('cursor-pointer hover:-translate-y-0.5 hover:shadow-md', styles.hoverRing) : '',
     disabled ? 'opacity-70' : '',
   );
 
@@ -101,6 +106,13 @@ export function StatCard({
       <NavLink to={to} className={containerClass} aria-label={ariaLabel ?? label}>
         {body}
       </NavLink>
+    );
+  }
+  if (onClick && !disabled) {
+    return (
+      <button type="button" onClick={onClick} className={containerClass} aria-label={ariaLabel ?? label}>
+        {body}
+      </button>
     );
   }
   return <div className={containerClass}>{body}</div>;

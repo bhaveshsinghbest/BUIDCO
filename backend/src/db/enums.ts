@@ -138,3 +138,15 @@ export type UserRole = (typeof userRoles)[number];
 
 export const auditActions = ['Created', 'Updated', 'Deleted'] as const;
 export type AuditAction = (typeof auditActions)[number];
+
+export const fundingSources = [
+  'Central - EAP',
+  'Central - Non-EAP',
+  'Central - State Share',
+  'State Funded',
+] as const;
+export type FundingSource = (typeof fundingSources)[number];
+
+/** Derived (not stored) — computed from ucSubmittedDate/expenditure in the service. */
+export const fundsUcStatuses = ['Submitted', 'Pending', 'Overdue'] as const;
+export type FundsUcStatus = (typeof fundsUcStatuses)[number];

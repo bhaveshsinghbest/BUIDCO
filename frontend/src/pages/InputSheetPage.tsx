@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useListCosEotForProjectQuery } from '../app/api/cosEotApi';
+import { useListFundsUcQuery } from '../app/api/fundsUcApi';
 import { useListGeoPhotosQuery } from '../app/api/geoPhotosApi';
 import { useListMgmtActionsForProjectQuery } from '../app/api/mgmtActionsApi';
 import {
@@ -15,6 +16,7 @@ import { ActionRemarksSection } from '../components/input-sheet/ActionRemarksSec
 import { BasicInfoSection } from '../components/input-sheet/BasicInfoSection';
 import { ContractSecuritySection } from '../components/input-sheet/ContractSecuritySection';
 import { CosEotSection } from '../components/input-sheet/CosEotSection';
+import { FundingSourceSection } from '../components/input-sheet/FundingSourceSection';
 import { GeoTaggingSection } from '../components/input-sheet/GeoTaggingSection';
 import { ImportProjectDialog } from '../components/input-sheet/ImportProjectDialog';
 import { OmDetailsSection } from '../components/input-sheet/OmDetailsSection';
@@ -34,7 +36,8 @@ type SectionId =
   | 'contract'
   | 'geo'
   | 'action'
-  | 'om';
+  | 'om'
+  | 'funding';
 
 interface SectionDef {
   id: SectionId;
@@ -62,6 +65,7 @@ const VARIABLE_SECTIONS: SectionDef[] = [
   { id: 'geo', label: '04 GeoTagging' },
   { id: 'action', label: '05 Action & Remarks' },
   { id: 'om', label: '06 O&M Details' },
+  { id: 'funding', label: '07 Funding Source' },
 ];
 
 const FIXED_IDS = new Set<SectionId>(FIXED_SECTIONS.map((s) => s.id));
@@ -98,6 +102,8 @@ export function InputSheetPage(): JSX.Element {
   const cosEot = useListCosEotForProjectQuery(projectId ?? '', { skip: !isEdit });
   const mgmt = useListMgmtActionsForProjectQuery(projectId ?? '', { skip: !isEdit });
   const photos = useListGeoPhotosQuery(projectId ?? '', { skip: !isEdit });
+  const fundsUc = useListFundsUcQuery(undefined, { skip: !isEdit });
+  const fundsUcEntry = fundsUc.data?.items.find((e) => e.projectId === projectId) ?? null;
 
   const { draft, setField, isDirty } = useProjectDraft(detail.data ?? null);
   const [createProject, createState] = useCreateProjectMutation();
@@ -437,6 +443,13 @@ export function InputSheetPage(): JSX.Element {
               draft={draft}
               setField={setField}
               {...(activeGroup === 'all' ? { num: '08' } : {})}
+            />
+          ) : null}
+          {activeGroup === 'all' || section === 'funding' ? (
+            <FundingSourceSection
+              projectId={projectId ?? null}
+              entry={fundsUcEntry}
+              {...(activeGroup === 'all' ? { num: '09' } : {})}
             />
           ) : null}
         </div>

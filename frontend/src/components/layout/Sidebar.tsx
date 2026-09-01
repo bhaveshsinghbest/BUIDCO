@@ -13,6 +13,7 @@ import {
   LayoutDashboard,
   Map,
   Tag,
+  Wallet,
   X,
 } from 'lucide-react';
 import { useAppSelector } from '../../app/hooks';
@@ -52,6 +53,7 @@ const PRIMARY_NAV: NavItem[] = [
   { to: '/management-actions',  label: 'Management Action',  Icon: CheckSquare },
   { to: '/gaps',                label: 'Outstanding Gaps',   Icon: AlertTriangle },
   { to: '/pre-monsoon',         label: 'Pre-Monsoon Prep',   Icon: CloudRain },
+  { to: '/funds-uc',            label: 'Funds & UC',         Icon: Wallet },
 ];
 
 interface Props {

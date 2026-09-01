@@ -22,6 +22,7 @@ export const TAG_TYPES = [
   'Mom',
   'MomAction',
   'PreMonsoon',
+  'FundsUc',
   'GeoPhoto',
   'User',
   'Audit',

@@ -7,6 +7,7 @@ import { CosEotPage } from './pages/CosEotPage';
 import { DistrictsPage } from './pages/DistrictsPage';
 import { DivisionsPage } from './pages/DivisionsPage';
 import { ForgotPasswordPage } from './pages/ForgotPasswordPage';
+import { FundsUcPage } from './pages/FundsUcPage';
 import { InputSheetPage } from './pages/InputSheetPage';
 import { LoginPage } from './pages/LoginPage';
 import { MgmtActionsPage } from './pages/MgmtActionsPage';
@@ -52,6 +53,7 @@ export function AppRoutes(): JSX.Element {
           <Route path="management-actions" element={<MgmtActionsPage />} />
           <Route path="gaps" element={<OutstandingGapsPage />} />
           <Route path="pre-monsoon" element={<PreMonsoonPage />} />
+          <Route path="funds-uc" element={<FundsUcPage />} />
           <Route path="mom" element={<MoMPage />} />
           {/* Photos view deferred to end of Phase 6 */}
           <Route path="photos" element={<PlaceholderPage title="Geo Photos" subBatch="deferred" />} />

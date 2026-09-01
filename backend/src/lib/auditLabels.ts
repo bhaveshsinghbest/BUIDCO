@@ -165,6 +165,19 @@ export const PRE_MONSOON_LABELS: Record<string, string> = {
   table: 'Table',
 };
 
+export const FUNDS_UC_LABELS: Record<string, string> = {
+  projectId: 'Project ID',
+  fundingSource: 'Funding source',
+  openingBalanceCr: 'Opening balance (₹ Cr)',
+  grantReceivedCr: 'Grant received (₹ Cr)',
+  expenditureIncurredCr: 'Expenditure incurred (₹ Cr)',
+  sanctionNo: 'Sanction no.',
+  ucSubmittedDate: 'UC submitted date',
+  remarks: 'Remarks',
+  fundsUcId: 'Funds & UC ID',
+  table: 'Table',
+};
+
 export const GEO_PHOTO_LABELS: Record<string, string> = {
   url: 'URL',
   caption: 'Caption',
@@ -215,6 +228,7 @@ export const diffMilestoneProgress = (b: Row, a: Row): AuditChange[] => diffFiel
 export const diffMom = (b: Row, a: Row): AuditChange[] => diffFields(b, a, MOM_LABELS);
 export const diffMomAction = (b: Row, a: Row): AuditChange[] => diffFields(b, a, MOM_ACTION_LABELS);
 export const diffPreMonsoon = (b: Row, a: Row): AuditChange[] => diffFields(b, a, PRE_MONSOON_LABELS);
+export const diffFundsUc = (b: Row, a: Row): AuditChange[] => diffFields(b, a, FUNDS_UC_LABELS);
 export const diffGeoPhoto = (b: Row, a: Row): AuditChange[] => diffFields(b, a, GEO_PHOTO_LABELS);
 export const diffAppUser = (b: Row, a: Row): AuditChange[] => diffFields(b, a, APP_USER_LABELS);
 export const diffPasswordResetRequest = (b: Row, a: Row): AuditChange[] =>

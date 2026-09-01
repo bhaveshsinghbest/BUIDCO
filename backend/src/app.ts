@@ -6,6 +6,7 @@ import { corsOptions } from './config/cors.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
 import { auditRouter } from './routes/audit.js';
 import { authRouter } from './routes/auth.js';
+import { fundsUcRouter } from './routes/fundsUc.js';
 import { healthRouter } from './routes/health.js';
 import { kpisRouter } from './routes/kpis.js';
 import { lookupsRouter } from './routes/lookups.js';
@@ -36,6 +37,7 @@ export function createApp(): Express {
   app.use('/api/projects', projectsRouter);
   app.use('/api/mom', momRouter);
   app.use('/api/pre-monsoon', preMonsoonRouter);
+  app.use('/api/funds-uc', fundsUcRouter);
   app.use('/api/users', usersRouter);
   app.use('/api/audit', auditRouter);
   app.use('/api/uploads', uploadsRouter);
