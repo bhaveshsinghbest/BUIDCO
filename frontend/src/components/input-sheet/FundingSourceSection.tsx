@@ -12,6 +12,10 @@ interface Props {
   /** This project's existing Funds & UC entry, if any (looked up by the
    *  parent from the full Funds & UC list — one entry per project). */
   entry: FundsUcEntry | null;
+  /** Creates the project first (if it doesn't exist yet) and returns its ID,
+   *  so this section works before the user has explicitly saved — see
+   *  InputSheetPage's `ensureProjectSaved`. */
+  onEnsureProjectSaved: () => Promise<string>;
   /** Override the default section number (used by the ALL Fields tab). */
   num?: string;
 }
@@ -31,7 +35,7 @@ const FUNDING_SOURCES: FundingSource[] = [
  * Funds & UC page itself (its Edit form) to keep this section focused on
  * exactly what's asked here: the funding source and its share amounts.
  */
-export function FundingSourceSection({ projectId, entry, num = '09' }: Props): JSX.Element {
+export function FundingSourceSection({ projectId, entry, onEnsureProjectSaved, num = '09' }: Props): JSX.Element {
   const [createFundsUc, createState] = useCreateFundsUcMutation();
   const [updateFundsUc, updateState] = useUpdateFundsUcMutation();
   const busy = createState.isLoading || updateState.isLoading;
@@ -42,33 +46,21 @@ export function FundingSourceSection({ projectId, entry, num = '09' }: Props): J
   const [expenditureIncurredCr, setExpenditureIncurredCr] = useState<number | null>(
     entry?.expenditureIncurredCr ?? null,
   );
+  const [centralShareCr, setCentralShareCr] = useState<number | null>(entry?.centralShareCr ?? null);
+  const [stateShareCr, setStateShareCr] = useState<number | null>(entry?.stateShareCr ?? null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+
+  const isCentralStateShare = fundingSource === 'Central - State Share';
 
   useEffect(() => {
     setFundingSource(entry?.fundingSource ?? '');
     setOpeningBalanceCr(entry?.openingBalanceCr ?? null);
     setGrantReceivedCr(entry?.grantReceivedCr ?? null);
     setExpenditureIncurredCr(entry?.expenditureIncurredCr ?? null);
+    setCentralShareCr(entry?.centralShareCr ?? null);
+    setStateShareCr(entry?.stateShareCr ?? null);
   }, [entry]);
-
-  if (!projectId) {
-    return (
-      <Card>
-        <CardContent className="pt-4">
-          <FormSectionHeader
-            num={num}
-            title="Funding Source of the Project"
-            sub="Save the project first — funding & UC details attach to an existing project."
-          />
-          <p className="rounded border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2 text-[12.5px] text-[#92400E]">
-            💡 The funding source and share inputs become available after you save this project.
-            Fill Section 01 (Project Name) and click Save; then return to this tab.
-          </p>
-        </CardContent>
-      </Card>
-    );
-  }
 
   const handleSave = async (): Promise<void> => {
     setError(null);
@@ -80,9 +72,15 @@ export function FundingSourceSection({ projectId, entry, num = '09' }: Props): J
     if (
       (openingBalanceCr ?? 0) < 0 ||
       (grantReceivedCr ?? 0) < 0 ||
-      (expenditureIncurredCr ?? 0) < 0
+      (expenditureIncurredCr ?? 0) < 0 ||
+      (centralShareCr ?? 0) < 0 ||
+      (stateShareCr ?? 0) < 0
     ) {
       setError('Share amounts cannot be negative.');
+      return;
+    }
+    if (isCentralStateShare && (centralShareCr === null || stateShareCr === null)) {
+      setError('Enter both Central Share and State Share for "Central - State Share" funding.');
       return;
     }
     const body = {
@@ -90,12 +88,15 @@ export function FundingSourceSection({ projectId, entry, num = '09' }: Props): J
       openingBalanceCr: openingBalanceCr ?? 0,
       grantReceivedCr: grantReceivedCr ?? 0,
       expenditureIncurredCr: expenditureIncurredCr ?? 0,
+      centralShareCr: isCentralStateShare ? centralShareCr : null,
+      stateShareCr: isCentralStateShare ? stateShareCr : null,
     };
     try {
       if (entry) {
         await updateFundsUc({ fundsUcId: entry.fundsUcId, body }).unwrap();
       } else {
-        await createFundsUc({ projectId, ...body }).unwrap();
+        const savedProjectId = projectId ?? (await onEnsureProjectSaved());
+        await createFundsUc({ projectId: savedProjectId, ...body }).unwrap();
       }
       setSaved(true);
     } catch (err) {
@@ -159,6 +160,27 @@ export function FundingSourceSection({ projectId, entry, num = '09' }: Props): J
             Select a funding source to enter its share amounts.
           </p>
         )}
+
+        {isCentralStateShare ? (
+          <div className="mt-3 grid grid-cols-1 gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-3 md:grid-cols-2">
+            <NumberField
+              label="Central Share (₹ Cr)"
+              value={centralShareCr}
+              onChange={setCentralShareCr}
+              min={0}
+              required
+              hint="Split of the combined Central - State Share between the Centre…"
+            />
+            <NumberField
+              label="State Share (₹ Cr)"
+              value={stateShareCr}
+              onChange={setStateShareCr}
+              min={0}
+              required
+              hint="…and the State."
+            />
+          </div>
+        ) : null}
 
         <div className="mt-4 border-t border-[#F3F4F6] pt-3">
           <Button onClick={handleSave} disabled={busy}>

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { NavLink } from 'react-router-dom';
 import { useGetLookupsQuery } from '../../app/api/lookupsApi';
 import {
   useGetProjectQuery,
@@ -8,6 +9,7 @@ import {
 } from '../../app/api/projectsApi';
 import { useAppSelector } from '../../app/hooks';
 import { selectCurrentUser } from '../../features/auth/authSlice';
+import { useClickOutside } from '../../hooks/useClickOutside';
 import {
   bucketByTenderSubStage,
   displayNitDate,
@@ -18,7 +20,7 @@ import {
 } from '../../features/tender/tenderWorkflow';
 import type { Lookups, ProjectListItem, TenderSubStage } from '../../types/api';
 import { cn } from '../../lib/utils';
-import { formatDate } from '../../lib/formatters';
+import { daysBetween, formatDate } from '../../lib/formatters';
 import { Button } from '../ui/button';
 import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../ui/ColumnFilter';
 import { RemarksButton, RemarksDialog } from '../projects/RemarksDialog';
@@ -264,6 +266,7 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
             drillProjects={drillProjects}
             lookups={lookupsQuery.data}
             onOpenRemarks={setRemarksProject}
+            onNavigateAway={onClose}
           />
         ) : (
           <StagesTab
@@ -302,8 +305,95 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
  * Dashboard tab
  * ──────────────────────────────────────────────────────────────────────── */
 
+/** Days overdue against the project's planned (or expected) completion date
+ *  — positive means delayed by that many days, non-positive means on track.
+ *  `null` when neither date is set. Mirrors the sign convention used
+ *  elsewhere in the app: `daysBetween(target, today)`. */
+function delayDaysOf(p: ProjectListItem): number | null {
+  const target = p.plannedEndDate ?? p.expectedCompletionDate;
+  if (!target) return null;
+  return daysBetween(target, new Date());
+}
+
+type DashboardSortKey = 'projectName' | 'division' | 'nitDate' | 'delay';
+
+const EXECUTION_STATUSES = ['Not Started', 'In Progress', 'Completed', 'On Hold', 'Delayed'];
+
+type DelayBucket = 15 | 30 | 60 | 90;
+const DELAY_BUCKETS: Array<{ key: DelayBucket; label: string }> = [
+  { key: 15, label: '> 15 Days' },
+  { key: 30, label: '> 30 Days' },
+  { key: 60, label: '> 60 Days' },
+  { key: 90, label: '> 90 Days' },
+];
+
+/**
+ * The Delay column's own filter (bhaveshTask.md) — a small "Delay ▾" toggle
+ * embedded in the header, same spot every other column's filter control
+ * sits, opening a compact checkbox panel instead of a single text/select
+ * input since this one needs multiple tick-boxes.
+ */
+function DelayColumnFilter({
+  buckets,
+  onToggle,
+}: {
+  buckets: Set<DelayBucket>;
+  onToggle: (b: DelayBucket) => void;
+}): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  useClickOutside(ref, open, () => setOpen(false));
+
+  return (
+    <div className="relative mt-1" ref={ref}>
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          setOpen((p) => !p);
+        }}
+        aria-expanded={open}
+        className="flex h-6 w-full min-w-[74px] items-center justify-between rounded border border-[#D1D5DB] bg-white px-1.5 text-[10.5px] font-normal normal-case tracking-normal text-[#111827] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#1E3A5F]"
+      >
+        {buckets.size > 0 ? `${buckets.size} selected` : 'All'}
+        <span aria-hidden className={cn('text-[8px] transition-transform', open && 'rotate-180')}>▾</span>
+      </button>
+      {open ? (
+        <div className="absolute left-0 top-full z-20 mt-1 w-32 rounded border border-[#E5E7EB] bg-white p-1.5 normal-case tracking-normal shadow-lg">
+          {DELAY_BUCKETS.map((b) => (
+            <label
+              key={b.key}
+              className="flex cursor-pointer items-center gap-1.5 rounded px-1 py-1 text-[11px] font-normal text-[#374151] hover:bg-[#F3F4F6]"
+            >
+              <input
+                type="checkbox"
+                checked={buckets.has(b.key)}
+                onChange={() => onToggle(b.key)}
+                className="h-3 w-3 cursor-pointer accent-[#1D4ED8]"
+              />
+              {b.label}
+            </label>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function schemeNamesOf(project: ProjectListItem, lookups: Lookups | undefined): string[] {
+  if (!project.schemes || project.schemes.length === 0) return [];
+  const byId = new Map((lookups?.schemes ?? []).map((s) => [s.schemeId, s.schemeName]));
+  return project.schemes.map((id) => byId.get(id)).filter((n): n is string => Boolean(n));
+}
+
+function sectorNameOf(project: ProjectListItem, lookups: Lookups | undefined): string | null {
+  return project.sectorId
+    ? (lookups?.sectors.find((s) => s.sectorId === project.sectorId)?.sectorName ?? null)
+    : null;
+}
+
 function DashboardTab({
-  byStage, selectedStage, onSelect, drillProjects, lookups, onOpenRemarks,
+  byStage, selectedStage, onSelect, drillProjects, lookups, onOpenRemarks, onNavigateAway,
 }: {
   byStage: Map<TenderSubStage, ProjectListItem[]>;
   selectedStage: TenderSubStage | null;
@@ -311,28 +401,122 @@ function DashboardTab({
   drillProjects: ProjectListItem[];
   lookups: Lookups | undefined;
   onOpenRemarks: (project: ProjectListItem) => void;
+  onNavigateAway: () => void;
 }): JSX.Element {
   // Task: Table Column Filter for the stage drill-in table — same
   // independent-per-column pattern as StagesTab below.
   const [colFilters, setColFilters] = useState<Record<string, string>>({});
   const setColFilter = (key: string, value: string): void =>
     setColFilters((prev) => ({ ...prev, [key]: value }));
-  const activeFilterCount = Object.values(colFilters).filter((v) => v.trim() !== '').length;
+
+  // bhaveshTask.md — 4 prominent dropdown filters shown above the table,
+  // independent of (and combined with) the per-column filters above.
+  const [filterStatus, setFilterStatus] = useState('');
+  const [filterDivisionTop, setFilterDivisionTop] = useState('');
+  const [filterScheme, setFilterScheme] = useState('');
+  const [filterSector, setFilterSector] = useState('');
+  const [delayBuckets, setDelayBuckets] = useState<Set<DelayBucket>>(() => new Set());
+  const toggleDelayBucket = (b: DelayBucket): void => {
+    setDelayBuckets((prev) => {
+      const next = new Set(prev);
+      if (next.has(b)) next.delete(b);
+      else next.add(b);
+      return next;
+    });
+  };
+
+  const activeFilterCount =
+    Object.values(colFilters).filter((v) => v.trim() !== '').length +
+    (filterStatus ? 1 : 0) + (filterDivisionTop ? 1 : 0) + (filterScheme ? 1 : 0) + (filterSector ? 1 : 0) +
+    delayBuckets.size;
+  const clearAllFilters = (): void => {
+    setColFilters({});
+    setFilterStatus('');
+    setFilterDivisionTop('');
+    setFilterScheme('');
+    setFilterSector('');
+    setDelayBuckets(new Set());
+  };
+
+  // Standard table sorting — same click-header / arrow-indicator pattern as
+  // the Projects section's table (bhaveshTask.md Task 3), applied here plus
+  // a dedicated Delay column with its own Low→High / High→Low sort.
+  const [sortKey, setSortKey] = useState<DashboardSortKey | null>(null);
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const onSort = (key: DashboardSortKey): void => {
+    if (sortKey === key) setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'));
+    else {
+      setSortKey(key);
+      setSortDir('asc');
+    }
+  };
+  const arrow = (key: DashboardSortKey): string => (sortKey === key ? (sortDir === 'asc' ? ' ↑' : ' ↓') : '');
 
   const divisionOptions = useMemo(() => {
     const names = new Set((lookups?.divisions ?? []).map((d) => d.divisionName));
     return Array.from(names).sort();
   }, [lookups]);
+  const schemeOptions = useMemo(() => {
+    const names = new Set((lookups?.schemes ?? []).map((s) => s.schemeName));
+    return Array.from(names).sort();
+  }, [lookups]);
+  const sectorOptions = useMemo(() => {
+    const names = new Set((lookups?.sectors ?? []).map((s) => s.sectorName));
+    return Array.from(names).sort();
+  }, [lookups]);
 
   const filteredDrillProjects = useMemo(() => {
     return drillProjects.filter((p) => {
+      // Per-column filters.
       if (!textMatches(colFilters.projectName ?? '', p.projectName)) return false;
       if (!selectMatches(colFilters.division ?? '', divisionNameOf(p, lookups))) return false;
       if (!textMatches(colFilters.contractor ?? '', p.contractor)) return false;
       if (!textMatches(colFilters.nitNumber ?? '', p.nitNumber)) return false;
+      if (!textMatches(colFilters.nitDate ?? '', p.nitDate)) return false;
+      if (!textMatches(colFilters.lastUpdated ?? '', p.lastUpdated?.slice(0, 10))) return false;
+      if (!textMatches(colFilters.remark ?? '', p.remark)) return false;
+
+      // Prominent above-table dropdown filters.
+      if (filterStatus && p.status !== filterStatus) return false;
+      if (filterDivisionTop && divisionNameOf(p, lookups) !== filterDivisionTop) return false;
+      if (filterScheme && !schemeNamesOf(p, lookups).includes(filterScheme)) return false;
+      if (filterSector && sectorNameOf(p, lookups) !== filterSector) return false;
+
+      // Delay bucket filter — OR across checked buckets (matches "at least
+      // one selected threshold"), never double-counts a row either way
+      // since this is an inclusion test per row, not a list concatenation.
+      if (delayBuckets.size > 0) {
+        const delay = delayDaysOf(p);
+        const matchesAnyBucket = Array.from(delayBuckets).some((b) => delay !== null && delay > b);
+        if (!matchesAnyBucket) return false;
+      }
       return true;
     });
-  }, [drillProjects, colFilters, lookups]);
+  }, [drillProjects, colFilters, lookups, filterStatus, filterDivisionTop, filterScheme, filterSector, delayBuckets]);
+
+  const sortedDrillProjects = useMemo(() => {
+    if (!sortKey) return filteredDrillProjects;
+    const sortValue = (p: ProjectListItem): string | number | null => {
+      switch (sortKey) {
+        case 'projectName': return p.projectName;
+        case 'division': return divisionNameOf(p, lookups);
+        case 'nitDate': return p.nitDate;
+        case 'delay': return delayDaysOf(p);
+        default: return null;
+      }
+    };
+    const arr = [...filteredDrillProjects];
+    arr.sort((a, b) => {
+      const av = sortValue(a);
+      const bv = sortValue(b);
+      if (av === null || av === undefined) return 1;
+      if (bv === null || bv === undefined) return -1;
+      if (av < bv) return sortDir === 'asc' ? -1 : 1;
+      if (av > bv) return sortDir === 'asc' ? 1 : -1;
+      return 0;
+    });
+    return arr;
+  }, [filteredDrillProjects, sortKey, sortDir, lookups]);
 
   return (
     <div className="space-y-4">
@@ -379,7 +563,7 @@ function DashboardTab({
               {selectedStage}
               <span className="ml-2 text-[11px] font-normal text-[#6B7280]">
                 — {activeFilterCount > 0
-                  ? `${filteredDrillProjects.length} of ${drillProjects.length} project${drillProjects.length === 1 ? '' : 's'} match ${activeFilterCount} column filter${activeFilterCount === 1 ? '' : 's'}`
+                  ? `${filteredDrillProjects.length} of ${drillProjects.length} project${drillProjects.length === 1 ? '' : 's'} match ${activeFilterCount} filter${activeFilterCount === 1 ? '' : 's'}`
                   : `${drillProjects.length} project${drillProjects.length === 1 ? '' : 's'}`}
               </span>
             </span>
@@ -387,10 +571,10 @@ function DashboardTab({
               {activeFilterCount > 0 ? (
                 <button
                   type="button"
-                  onClick={() => setColFilters({})}
+                  onClick={clearAllFilters}
                   className="text-[11px] font-semibold text-[#B91C1C] hover:underline"
                 >
-                  Clear column filters ({activeFilterCount})
+                  Clear/Reset Filters ({activeFilterCount})
                 </button>
               ) : null}
               <button
@@ -402,13 +586,64 @@ function DashboardTab({
               </button>
             </div>
           </div>
+
+          {/* bhaveshTask.md — 4 prominent dropdowns shown above the table,
+              combined via AND with each other, the Delay column's own
+              checkbox filter, and the per-column filters below. */}
+          <div className="grid grid-cols-2 gap-2 border-b border-[#F3F4F6] bg-[#FAFBFC] px-3 py-3 sm:grid-cols-4">
+            <label className="grid gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">Execution Status</span>
+              <select
+                value={filterStatus}
+                onChange={(e) => setFilterStatus(e.target.value)}
+                className="h-8 rounded border border-[#D1D5DB] bg-white px-2 text-[12px]"
+              >
+                <option value="">All</option>
+                {EXECUTION_STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">Division</span>
+              <select
+                value={filterDivisionTop}
+                onChange={(e) => setFilterDivisionTop(e.target.value)}
+                className="h-8 rounded border border-[#D1D5DB] bg-white px-2 text-[12px]"
+              >
+                <option value="">All</option>
+                {divisionOptions.map((d) => <option key={d} value={d}>{d}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">Scheme</span>
+              <select
+                value={filterScheme}
+                onChange={(e) => setFilterScheme(e.target.value)}
+                className="h-8 rounded border border-[#D1D5DB] bg-white px-2 text-[12px]"
+              >
+                <option value="">All</option>
+                {schemeOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label className="grid gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">Sector</span>
+              <select
+                value={filterSector}
+                onChange={(e) => setFilterSector(e.target.value)}
+                className="h-8 rounded border border-[#D1D5DB] bg-white px-2 text-[12px]"
+              >
+                <option value="">All</option>
+                {sectorOptions.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+          </div>
+
           {drillProjects.length === 0 ? (
             <p className="px-3 py-6 text-center text-[12.5px] text-[#6B7280]">
               No projects currently in this sub-stage.
             </p>
           ) : filteredDrillProjects.length === 0 ? (
             <p className="px-3 py-6 text-center text-[12.5px] text-[#6B7280]">
-              No projects match the current column filters.
+              No projects match the current filters.
             </p>
           ) : (
             <div className="overflow-x-auto">
@@ -416,17 +651,25 @@ function DashboardTab({
                 <thead>
                   <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280]">
                     <th className="px-3 py-2 text-left align-top">
-                      <div>Project Name</div>
+                      <button type="button" onClick={() => onSort('projectName')} className="cursor-pointer hover:text-[#1E3A5F]">
+                        Project Name<span aria-hidden>{arrow('projectName')}</span>
+                      </button>
                       <ColumnFilterText value={colFilters.projectName ?? ''} onChange={(v) => setColFilter('projectName', v)} />
                     </th>
                     <th className="px-3 py-2 text-left align-top">
-                      <div>Division</div>
+                      <button type="button" onClick={() => onSort('division')} className="cursor-pointer hover:text-[#1E3A5F]">
+                        Division<span aria-hidden>{arrow('division')}</span>
+                      </button>
                       <ColumnFilterSelect
                         value={colFilters.division ?? ''}
                         onChange={(v) => setColFilter('division', v)}
                         options={divisionOptions.map((d) => ({ value: d, label: d }))}
                       />
                     </th>
+                    {/* Department / Agreement Number come from a per-row ProjectDetail
+                        fetch (not the list payload) — filtering on them would mean
+                        pre-fetching every row's detail just to filter, which the task's
+                        own "avoid unnecessary/inefficient API calls" guidance rules out. */}
                     <th className="px-3 py-2 text-left">Department</th>
                     <th className="px-3 py-2 text-left">Agreement Number</th>
                     <th className="px-3 py-2 text-left align-top">
@@ -437,20 +680,49 @@ function DashboardTab({
                       <div>NIT Number</div>
                       <ColumnFilterText value={colFilters.nitNumber ?? ''} onChange={(v) => setColFilter('nitNumber', v)} />
                     </th>
-                    <th className="px-3 py-2 text-left">NIT Date</th>
+                    <th className="px-3 py-2 text-left align-top">
+                      <button type="button" onClick={() => onSort('nitDate')} className="cursor-pointer hover:text-[#1E3A5F]">
+                        NIT Date<span aria-hidden>{arrow('nitDate')}</span>
+                      </button>
+                      <ColumnFilterText
+                        value={colFilters.nitDate ?? ''}
+                        onChange={(v) => setColFilter('nitDate', v)}
+                        placeholder="e.g. 2026-08"
+                      />
+                    </th>
+                    {/* Every row already shares the same value (drillProjects is
+                        pre-scoped to `selectedStage`) — a filter here would only
+                        ever be all-or-nothing, so it's left as a plain header. */}
                     <th className="px-3 py-2 text-left">Current Sub-Stage</th>
-                    <th className="px-3 py-2 text-left">Last Updated</th>
-                    <th className="px-3 py-2 text-left">Remarks</th>
+                    <th className="px-3 py-2 text-left align-top">
+                      <button type="button" onClick={() => onSort('delay')} className="cursor-pointer hover:text-[#1E3A5F]" title="Sort by delay — Low to High / High to Low">
+                        Delay<span aria-hidden>{arrow('delay')}</span>
+                      </button>
+                      <DelayColumnFilter buckets={delayBuckets} onToggle={toggleDelayBucket} />
+                    </th>
+                    <th className="px-3 py-2 text-left align-top">
+                      <div>Last Updated</div>
+                      <ColumnFilterText
+                        value={colFilters.lastUpdated ?? ''}
+                        onChange={(v) => setColFilter('lastUpdated', v)}
+                        placeholder="e.g. 2026-08"
+                      />
+                    </th>
+                    <th className="px-3 py-2 text-left align-top">
+                      <div>Remarks</div>
+                      <ColumnFilterText value={colFilters.remark ?? ''} onChange={(v) => setColFilter('remark', v)} />
+                    </th>
                   </tr>
                 </thead>
                 <tbody>
-                  {filteredDrillProjects.map((p) => (
+                  {sortedDrillProjects.map((p) => (
                     <ProjectDrillRow
                       key={p.projectId}
                       project={p}
                       lookups={lookups}
                       subStage={selectedStage}
                       onOpenRemarks={onOpenRemarks}
+                      onNavigateAway={onNavigateAway}
                     />
                   ))}
                 </tbody>
@@ -472,20 +744,31 @@ function DashboardTab({
  * endpoint) — pull them per row via cached RTK Query fetches.
  */
 function ProjectDrillRow({
-  project, lookups, subStage, onOpenRemarks,
+  project, lookups, subStage, onOpenRemarks, onNavigateAway,
 }: {
   project: ProjectListItem;
   lookups: Lookups | undefined;
   subStage: TenderSubStage;
   onOpenRemarks: (project: ProjectListItem) => void;
+  onNavigateAway: () => void;
 }): JSX.Element {
   const detail = useGetProjectQuery(project.projectId);
   const division = project.divisionId
     ? lookups?.divisions.find((d) => d.divisionId === project.divisionId)?.divisionName ?? '—'
     : '—';
+  const delayDays = delayDaysOf(project);
   return (
     <tr className="border-b border-[#F3F4F6] hover:bg-[#F0F7FF]">
-      <td className="px-3 py-2 font-semibold text-[#1D4ED8]">{project.projectName}</td>
+      <td className="px-3 py-2 font-semibold">
+        <NavLink
+          to={`/projects/${project.projectId}`}
+          onClick={onNavigateAway}
+          className="text-[#1D4ED8] hover:underline"
+          title="Open project details"
+        >
+          {project.projectName}
+        </NavLink>
+      </td>
       <td className="px-3 py-2 text-[#374151]">{division}</td>
       <td className="px-3 py-2 text-[#374151]">
         {detail.isLoading ? '…' : detail.data?.sponsoringDept ?? '—'}
@@ -504,6 +787,15 @@ function ProjectDrillRow({
         <span className="inline-flex rounded-full bg-[#EFF6FF] px-2 py-0.5 text-[10.5px] font-semibold text-[#1D4ED8]">
           {subStage}
         </span>
+      </td>
+      <td className="px-3 py-2 tabular-nums">
+        {delayDays === null ? (
+          <span className="text-[#D1D5DB]">—</span>
+        ) : delayDays > 0 ? (
+          <span className="font-semibold text-[#B91C1C]">{delayDays}d overdue</span>
+        ) : (
+          <span className="text-[#15803D]">On track</span>
+        )}
       </td>
       <td className="px-3 py-2 tabular-nums text-[#6B7280]">
         {project.lastUpdated ? formatDate(project.lastUpdated.slice(0, 10)) : '—'}

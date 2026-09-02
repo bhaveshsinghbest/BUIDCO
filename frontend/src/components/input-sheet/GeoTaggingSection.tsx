@@ -1,8 +1,12 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import {
+  geoPhotosApi,
   useCreateGeoPhotoUrlMutation,
   useDeleteGeoPhotoMutation,
 } from '../../app/api/geoPhotosApi';
+import { useAppDispatch, useAppSelector } from '../../app/hooks';
+import { selectAccessToken } from '../../features/auth/authSlice';
+import { useUploadThing } from '../../lib/uploadthing';
 import { Card, CardContent } from '../ui/card';
 import { Button } from '../ui/button';
 import { FormField } from './FormField';
@@ -10,32 +14,64 @@ import { FormSectionHeader } from './FormSectionHeader';
 import type { GeoPhoto } from '../../types/api';
 import type { ProjectDraft } from '../../hooks/useProjectDraft';
 
+const MAX_UPLOAD_FILES = 6;
+
 interface Props {
   projectId: string | null;
   draft: ProjectDraft;
   setField: <K extends keyof ProjectDraft>(key: K, value: ProjectDraft[K]) => void;
   photos: GeoPhoto[];
+  /** Creates the project first (if it doesn't exist yet) and returns its ID,
+   *  so photos can be attached before the user has explicitly saved — see
+   *  InputSheetPage's `ensureProjectSaved`. */
+  onEnsureProjectSaved: () => Promise<string>;
   /** Override the default section number (used by the ALL Fields tab). */
   num?: string;
 }
 
-export function GeoTaggingSection({ projectId, draft, setField, photos, num = '04' }: Props): JSX.Element {
+export function GeoTaggingSection({
+  projectId, draft, setField, photos, onEnsureProjectSaved, num = '04',
+}: Props): JSX.Element {
+  const dispatch = useAppDispatch();
+  const accessToken = useAppSelector(selectAccessToken);
   const [url, setUrl] = useState('');
   const [caption, setCaption] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [createPhoto, createState] = useCreateGeoPhotoUrlMutation();
   const [deletePhoto, deleteState] = useDeleteGeoPhotoMutation();
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const busy = createState.isLoading || deleteState.isLoading;
+  const { startUpload, isUploading } = useUploadThing('geoPhoto', {
+    headers: () => (accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+    onUploadError: (e) => setError(e.message || 'Upload failed. Please try again.'),
+  });
 
-  const canSave = projectId !== null && url.trim().length > 0;
+  const busy = createState.isLoading || deleteState.isLoading || isUploading;
+
+  const canSave = url.trim().length > 0;
+
+  const handleFilesSelected = async (fileList: FileList | null): Promise<void> => {
+    if (!fileList || fileList.length === 0) return;
+    setError(null);
+    try {
+      const savedProjectId = projectId ?? (await onEnsureProjectSaved());
+      const files = Array.from(fileList).slice(0, MAX_UPLOAD_FILES);
+      await startUpload(files, { projectId: savedProjectId });
+      dispatch(geoPhotosApi.util.invalidateTags([{ type: 'GeoPhoto', id: savedProjectId }]));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
+    } finally {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    }
+  };
 
   const handleAddUrl = async (): Promise<void> => {
-    if (!projectId || !url.trim()) return;
+    if (!url.trim()) return;
     try {
       setError(null);
+      const savedProjectId = projectId ?? (await onEnsureProjectSaved());
       await createPhoto({
-        projectId,
+        projectId: savedProjectId,
         body: {
           url: url.trim(),
           caption: caption.trim() || null,
@@ -81,35 +117,46 @@ export function GeoTaggingSection({ projectId, draft, setField, photos, num = '0
 
         <div className="rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-3">
           <div className="mb-2 text-[10.5px] font-bold uppercase tracking-wider text-[#374151]">
+            Upload photo from device
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              multiple
+              onChange={(e) => void handleFilesSelected(e.target.files)}
+              disabled={busy}
+              className="block flex-1 text-[12.5px] text-[#374151] file:mr-3 file:h-9 file:rounded file:border-0 file:bg-[#1E3A5F] file:px-3 file:text-[12.5px] file:font-medium file:text-white hover:file:bg-[#152a48] disabled:opacity-60"
+            />
+            {isUploading ? <span className="text-[12px] text-[#6B7280]">Uploading…</span> : null}
+          </div>
+          <p className="mt-2 text-[11px] text-[#6B7280]">
+            JPG, PNG, or WEBP — up to 3 MB each, {MAX_UPLOAD_FILES} files per upload.
+          </p>
+
+          <div className="my-3 border-t border-[#E5E7EB]" />
+
+          <div className="mb-2 text-[10.5px] font-bold uppercase tracking-wider text-[#374151]">
             Add photo (by URL / link)
           </div>
-          {!projectId ? (
-            <p className="rounded border border-[#FDE68A] bg-[#FFFBEB] px-2 py-1.5 text-[12px] text-[#92400E]">
-              Save the project first — photos attach to an existing project.
-            </p>
-          ) : (
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-[2fr_1fr_auto]">
-              <input
-                value={url}
-                onChange={(e) => setUrl(e.target.value)}
-                placeholder="https://…  or paste Maps/Drive/WhatsApp link"
-                className="h-9 rounded border border-[#D1D5DB] bg-white px-3 text-[13px]"
-              />
-              <input
-                value={caption}
-                onChange={(e) => setCaption(e.target.value)}
-                placeholder="Caption (optional)"
-                className="h-9 rounded border border-[#D1D5DB] bg-white px-3 text-[13px]"
-              />
-              <Button size="sm" onClick={handleAddUrl} disabled={!canSave || busy}>
-                + Add Link
-              </Button>
-            </div>
-          )}
-          <p className="mt-2 text-[11px] text-[#6B7280]">
-            💡 File uploads (JPG/PNG/WEBP, ≤3 MB, up to 6 files) run from the dedicated Photos
-            view — this section keeps URL-source references only.
-          </p>
+          <div className="grid grid-cols-1 gap-2 md:grid-cols-[2fr_1fr_auto]">
+            <input
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="https://…  or paste Maps/Drive/WhatsApp link"
+              className="h-9 rounded border border-[#D1D5DB] bg-white px-3 text-[13px]"
+            />
+            <input
+              value={caption}
+              onChange={(e) => setCaption(e.target.value)}
+              placeholder="Caption (optional)"
+              className="h-9 rounded border border-[#D1D5DB] bg-white px-3 text-[13px]"
+            />
+            <Button size="sm" onClick={handleAddUrl} disabled={!canSave || busy}>
+              + Add Link
+            </Button>
+          </div>
         </div>
 
         {error ? (
@@ -165,9 +212,9 @@ export function GeoTaggingSection({ projectId, draft, setField, photos, num = '0
               </div>
             ))}
           </div>
-        ) : projectId ? (
+        ) : (
           <p className="mt-4 text-[12.5px] text-[#6B7280]">No photos yet.</p>
-        ) : null}
+        )}
       </CardContent>
     </Card>
   );

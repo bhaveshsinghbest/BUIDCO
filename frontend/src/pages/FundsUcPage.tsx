@@ -1,4 +1,5 @@
 import { useMemo, useRef, useState } from 'react';
+import { NavLink } from 'react-router-dom';
 import {
   useCreateFundsUcMutation,
   useDeleteFundsUcMutation,
@@ -158,7 +159,10 @@ export function FundsUcPage(): JSX.Element {
     setAddOpen(false);
   };
   const handleUpdate = async (fundsUcId: number, body: FundsUcCreatePayload): Promise<void> => {
-    const { fundingSource, openingBalanceCr, grantReceivedCr, expenditureIncurredCr, sanctionNo, ucSubmittedDate, remarks } = body;
+    const {
+      fundingSource, openingBalanceCr, grantReceivedCr, expenditureIncurredCr,
+      centralShareCr, stateShareCr, sanctionNo, ucSubmittedDate, remarks,
+    } = body;
     await updateEntry({
       fundsUcId,
       body: {
@@ -166,6 +170,8 @@ export function FundsUcPage(): JSX.Element {
         openingBalanceCr: openingBalanceCr ?? 0,
         grantReceivedCr: grantReceivedCr ?? 0,
         expenditureIncurredCr: expenditureIncurredCr ?? 0,
+        centralShareCr: centralShareCr ?? null,
+        stateShareCr: stateShareCr ?? null,
         sanctionNo: sanctionNo ?? null,
         ucSubmittedDate: ucSubmittedDate ?? null,
         remarks: remarks ?? null,
@@ -348,6 +354,8 @@ export function FundsUcPage(): JSX.Element {
                         options={FUNDING_SOURCES.map((v) => ({ value: v, label: v }))}
                       />
                     </th>
+                    <th className="px-3 py-2 text-right">Central Share</th>
+                    <th className="px-3 py-2 text-right">State Share</th>
                     <th className="px-3 py-2 text-right">Opening</th>
                     <th className="px-3 py-2 text-right">Received</th>
                     <th className="px-3 py-2 text-left">
@@ -381,10 +389,24 @@ export function FundsUcPage(): JSX.Element {
                       className={cn('border-b border-[#F3F4F6]', idx % 2 === 1 && 'bg-[#FAFAFA]')}
                     >
                       <td className="px-3 py-2 text-[#9CA3AF]">{idx + 1}</td>
-                      <td className="px-3 py-2 font-semibold text-[#111827]">{row.projectName}</td>
+                      <td className="px-3 py-2 font-semibold">
+                        <NavLink
+                          to={`/projects/${row.entry.projectId}`}
+                          className="text-[#1D4ED8] hover:underline"
+                          title="Open project details"
+                        >
+                          {row.projectName}
+                        </NavLink>
+                      </td>
                       <td className="px-3 py-2 text-[#374151]">{row.schemeNames.join(', ') || '—'}</td>
                       <td className="px-3 py-2 text-[#374151]">{row.divisionName ?? '—'}</td>
                       <td className="px-3 py-2 text-[#374151]">{row.entry.fundingSource}</td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {row.entry.centralShareCr === null ? '—' : formatCurrencyCr(row.entry.centralShareCr)}
+                      </td>
+                      <td className="px-3 py-2 text-right tabular-nums">
+                        {row.entry.stateShareCr === null ? '—' : formatCurrencyCr(row.entry.stateShareCr)}
+                      </td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatCurrencyCr(row.entry.openingBalanceCr)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatCurrencyCr(row.entry.grantReceivedCr)}</td>
                       <td className="px-3 py-2 text-[#374151]">{row.entry.sanctionNo ?? '—'}</td>

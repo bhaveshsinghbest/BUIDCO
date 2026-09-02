@@ -1,6 +1,10 @@
 import { useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import type { ProjectListItem } from '../../types/api';
 import type { Lookups } from '../../types/api';
+import { useDeleteProjectMutation } from '../../app/api/projectsApi';
+import { useAppSelector } from '../../app/hooks';
+import { selectCurrentUser } from '../../features/auth/authSlice';
 import { displayNitDate, displayNitNumber } from '../../features/tender/tenderWorkflow';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { daysBetween, formatCurrencyCr, formatDate, formatPercent } from '../../lib/formatters';
@@ -500,6 +504,12 @@ interface ProjectsTableProps {
 }
 
 export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: ProjectsTableProps): JSX.Element {
+  const navigate = useNavigate();
+  const currentUser = useAppSelector(selectCurrentUser);
+  const isMd = currentUser?.role === 'MD';
+  const [deleteProject, deleteState] = useDeleteProjectMutation();
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const [visibility, setVisibility] = useState<Record<string, boolean>>(() => loadVisibility());
   const [showPicker, setShowPicker] = useState(false);
   const [showExportMenu, setShowExportMenu] = useState(false);
@@ -510,6 +520,24 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
   const [profileProjectId, setProfileProjectId] = useState<string | null>(null);
   const exportMenuRef = useRef<HTMLDivElement>(null);
   useClickOutside(exportMenuRef, showExportMenu, () => setShowExportMenu(false));
+
+  const handleEdit = (e: React.MouseEvent, projectId: string): void => {
+    e.stopPropagation();
+    navigate(`/input-sheet/${projectId}`);
+  };
+
+  const handleDelete = async (e: React.MouseEvent, row: ProjectListItem): Promise<void> => {
+    e.stopPropagation();
+    setDeleteError(null);
+    if (!window.confirm(`Delete "${row.projectName}"? This permanently removes the project and all of its linked data (milestones, CoS/EoT, photos, etc.). This cannot be undone.`)) {
+      return;
+    }
+    try {
+      await deleteProject(row.projectId).unwrap();
+    } catch {
+      setDeleteError(`Could not delete "${row.projectName}". Please try again.`);
+    }
+  };
 
   // Task: Table Column Filter — each filterable column narrows the table
   // independently, combined with AND, layered on top of the existing
@@ -638,6 +666,7 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
             </button>
           ) : null}
           {exportError ? <span className="ml-2 normal-case text-[#B91C1C]">{exportError}</span> : null}
+          {deleteError ? <span className="ml-2 normal-case text-[#B91C1C]">{deleteError}</span> : null}
         </span>
         <div className="flex items-center gap-2">
           <div className="relative" ref={exportMenuRef}>
@@ -769,12 +798,20 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
                   </th>
                 );
               })}
+              {isMd ? (
+                <th
+                  scope="col"
+                  className="sticky top-0 z-10 whitespace-nowrap border-b border-[#E5E7EB] bg-[#F9FAFB] px-3 py-2 text-left text-[10.5px] font-semibold uppercase tracking-wider text-[#374151]"
+                >
+                  Actions
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
             {sortedRows.length === 0 ? (
               <tr>
-                <td colSpan={visibleColumns.length} className="px-3 py-10 text-center text-[#6B7280]">
+                <td colSpan={visibleColumns.length + (isMd ? 1 : 0)} className="px-3 py-10 text-center text-[#6B7280]">
                   No projects match your filters.
                 </td>
               </tr>
@@ -808,6 +845,23 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
                       {c.render(row, i, ctx)}
                     </td>
                   ))}
+                  {isMd ? (
+                    <td className="whitespace-nowrap px-3 py-2 align-middle text-[12px]">
+                      <div className="flex items-center gap-1">
+                        <Button size="xs" variant="outline" onClick={(e) => handleEdit(e, row.projectId)}>
+                          Edit
+                        </Button>
+                        <Button
+                          size="xs"
+                          variant="destructive"
+                          onClick={(e) => void handleDelete(e, row)}
+                          disabled={deleteState.isLoading}
+                        >
+                          Delete
+                        </Button>
+                      </div>
+                    </td>
+                  ) : null}
                 </tr>
               ))
             )}

@@ -1,6 +1,7 @@
 import { Menu } from 'lucide-react';
 import { BuidcoLogo } from './BuidcoLogo';
 import { NavClock } from './NavClock';
+import { UniversalSearchBar } from './UniversalSearchBar';
 import { UserPill } from './UserPill';
 import { UtilityNavCluster } from './UtilityNav';
 
@@ -49,6 +50,15 @@ export function TopNav({ onOpenMobileNav, onOpenKpiGuide }: TopNavProps): JSX.El
           <NavClock />
           <UserPill />
         </div>
+      </div>
+
+      {/* Row 2 — universal search, on its own row so it's available from
+          every page (bhaveshTask.md) without competing for space with the
+          already-tight utility-pill row above (which caused horizontal
+          overflow the last time search shared that row). Same row, same
+          position, on every breakpoint and every section. */}
+      <div className="flex items-center justify-center border-t border-[#F3F4F6] bg-[#FAFBFC] px-4 py-1.5 sm:justify-end">
+        <UniversalSearchBar className="w-full max-w-md" />
       </div>
 
       {/* Primary navigation lives in the left sidebar (Read.md §1). */}

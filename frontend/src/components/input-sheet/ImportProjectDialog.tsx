@@ -13,13 +13,14 @@ import { useNavigate } from 'react-router-dom';
 import type { Workbook, Worksheet } from 'exceljs';
 import { useGetLookupsQuery } from '../../app/api/lookupsApi';
 import { useImportProjectsMutation } from '../../app/api/projectsApi';
+import { useCreateFundsUcMutation } from '../../app/api/fundsUcApi';
 import { Button } from '../ui/button';
-import type { ProjectUpsertPayload } from '../../types/api';
+import type { FundingSource, FundsUcCreatePayload, ProjectUpsertPayload } from '../../types/api';
 
 const SHEET_NAME = 'Project Register';
 const HEADER_ROW = 2;
-// Row 3 is a legend row — every cell holds a type hint ("Text", "Dropdown:
-// Sector", "Auto (formula)", …) rather than data. Real rows start at 4.
+// Row 3 is a type-hint row ("Text", "Number", "Dropdown: Sectors", …) —
+// not data. Real rows start at 4.
 const FIRST_DATA_ROW = 4;
 
 const CONTRACT_TYPES = ['Work Contract', 'Service Contract', 'O&M Contract', 'Others'] as const;
@@ -29,6 +30,9 @@ const PROJECT_STAGE_V2 = [
 const STATUSES = ['Not Started', 'In Progress', 'Completed', 'On Hold', 'Delayed'] as const;
 const PRIORITIES = ['High', 'Medium', 'Low', 'N/A'] as const;
 const OM_STATUSES = ['Not Started', 'Ongoing', 'Expiring Soon', 'Expired', 'Handed Over to ULB'] as const;
+const FUNDING_SOURCES: FundingSource[] = [
+  'Central - EAP', 'Central - Non-EAP', 'Central - State Share', 'State Funded',
+];
 
 type FieldKind = 'text' | 'number' | 'percent' | 'date' | 'enum' | 'yesno' | 'url' | 'sector' | 'division' | 'schemes';
 
@@ -42,22 +46,22 @@ interface FieldDef {
 }
 
 /**
- * Maps every "Project Register" column onto a ProjectUpsertPayload field.
- * Columns intentionally NOT listed here (Region, Scheme / Category, Status
- * (auto), Pre-Monsoon Critical, Delay Days (auto), Total CoS Count (auto),
- * Total EoT Days (auto), Sanctioned Cost (auto), O&M End Date (auto,
- * override-able), Outstanding Gap?) are either server-derived, not modeled
- * on the project row, or redundant with a mapped column — those cells carry
- * live Excel formulas in the template and are simply ignored during import.
+ * Maps every "Project Register" column onto a ProjectUpsertPayload field —
+ * kept in lockstep with backend/src/scripts/generateInputSheetTemplate.ts,
+ * the single source of truth for the template's columns (bhaveshTask.md
+ * Tasks 5-6). Columns intentionally NOT listed here (the leading "#" serial
+ * column, Status (auto), Delay Days (auto), Total CoS Count (auto), Total
+ * EoT Days (auto), Sanctioned Cost (auto)) are server-derived/computed, not
+ * something a bulk import should set.
  */
 const FIELD_DEFS: FieldDef[] = [
   { header: 'Project Name', key: 'projectName', kind: 'text' },
   { header: 'Sector', key: 'sectorId', kind: 'sector' },
-  { header: 'Scheme(s)', key: 'schemes', kind: 'schemes' },
   { header: 'City', key: 'city', kind: 'text' },
   { header: 'Division', key: 'divisionId', kind: 'division' },
   { header: 'Contractor', key: 'contractor', kind: 'text' },
   { header: 'PD', key: 'pd', kind: 'text' },
+  { header: 'Scheme(s)', key: 'schemes', kind: 'schemes' },
   { header: 'Main Work', key: 'mainWork', kind: 'text' },
   { header: 'Physical Work Progress', key: 'physicalWorkProgressNote', kind: 'text' },
   { header: 'Contract Type', key: 'contractType', kind: 'enum', options: CONTRACT_TYPES },
@@ -69,6 +73,7 @@ const FIELD_DEFS: FieldDef[] = [
   { header: 'Execution Status', key: 'status', kind: 'enum', options: STATUSES },
   { header: 'Planned End Date', key: 'plannedEndDate', kind: 'date' },
   { header: 'Revised End Date', key: 'revisedEndDate', kind: 'date' },
+  { header: 'Expected Completion (date)', key: 'expectedCompletionDate', kind: 'date' },
   { header: 'Delay Reason / Root Cause', key: 'delayReason', kind: 'text' },
   { header: 'Department / Agency Stuck At', key: 'deptStuckAt', kind: 'text' },
   { header: 'Physical Progress % (Actual)', key: 'physicalProgressPct', kind: 'percent' },
@@ -78,12 +83,23 @@ const FIELD_DEFS: FieldDef[] = [
   { header: 'Revised AA Amount (Rs. Cr.)', key: 'revisedAaAmountCr', kind: 'number' },
   { header: 'Agreement Amount (Rs. Cr.)', key: 'agreementAmountCr', kind: 'number' },
   { header: 'Financial Progress (Rs. Cr.)', key: 'financialProgressCr', kind: 'number' },
+  { header: 'MPR Month', key: 'mprMonth', kind: 'text' },
+  { header: 'Fund Received (Rs. Cr.)', key: 'fundReceivedCr', kind: 'number' },
+  { header: 'Expenditure — Central Share (raw)', key: 'expenditureCentralRaw', kind: 'text' },
+  { header: 'Expenditure — State Share (raw)', key: 'expenditureStateRaw', kind: 'text' },
+  { header: 'Manpower Engaged', key: 'manpowerEngagedRaw', kind: 'text' },
+  { header: 'Main Component (with scope)', key: 'mainComponentScope', kind: 'text' },
+  { header: 'Progress — Up to Previous Month', key: 'progressPrevMonthRaw', kind: 'text' },
+  { header: 'Progress — During This Month', key: 'progressThisMonthRaw', kind: 'text' },
+  { header: 'MPR Remarks', key: 'mprRemark', kind: 'text' },
   { header: 'Agreement Number', key: 'agreementNumber', kind: 'text' },
   { header: 'Agreement Date', key: 'agreementDate', kind: 'date' },
   { header: 'Appointed Date', key: 'appointedDate', kind: 'date' },
   { header: 'Contract Value (Rs. Cr.)', key: 'contractValueCr', kind: 'number' },
-  { header: 'Mobilization Advance (Rs. Cr.)', key: 'mobAdvanceIssuedCr', kind: 'number' },
+  { header: 'Mobilisation Advance Issued (Rs. Cr.)', key: 'mobAdvanceIssuedCr', kind: 'number' },
   { header: 'Mob. Advance Recovered (Rs. Cr.)', key: 'mobAdvanceRecoveredCr', kind: 'number' },
+  { header: 'Advance Outstanding (Rs. Cr.)', key: 'advanceOutstandingCr', kind: 'number' },
+  { header: 'Retention Money Held (Rs. Cr.)', key: 'retentionMoneyHeldCr', kind: 'number' },
   { header: 'PBG Number', key: 'pbgNumber', kind: 'text' },
   { header: 'PBG Amount (Rs. Cr.)', key: 'pbgAmountCr', kind: 'number' },
   { header: 'PBG Expiry Date', key: 'pbgExpiryDate', kind: 'date' },
@@ -94,16 +110,40 @@ const FIELD_DEFS: FieldDef[] = [
   { header: 'Total Payments Made (Rs. Cr.)', key: 'totalPaymentsCr', kind: 'number' },
   { header: 'Last Payment Date', key: 'lastPaymentDate', kind: 'date' },
   { header: 'Last RA Bill No.', key: 'lastRaBillNo', kind: 'text' },
-  { header: 'Retention Money Held (Rs. Cr.)', key: 'retentionMoneyHeldCr', kind: 'number' },
   { header: 'Geo-Tagging URL (overview link)', key: 'geoTaggingUrl', kind: 'url' },
   { header: 'Priority', key: 'priority', kind: 'enum', options: PRIORITIES },
   { header: 'Gap / Remark', key: 'remark', kind: 'text' },
   { header: 'O&M Applicable', key: 'omApplicable', kind: 'yesno' },
   { header: 'O&M Start Date', key: 'omStartDate', kind: 'date' },
   { header: 'Total O&M Period (Months)', key: 'omPeriodMonths', kind: 'number' },
+  { header: 'O&M End Date (override)', key: 'omEndDate', kind: 'date' },
   { header: 'O&M Agency / Contractor', key: 'omAgency', kind: 'text' },
   { header: 'O&M Status (Manual Override)', key: 'omStatusOverride', kind: 'enum', options: OM_STATUSES },
   { header: 'O&M Remarks', key: 'omRemarks', kind: 'text' },
+];
+
+type FundingFieldKind = 'enum' | 'number';
+interface FundingFieldDef {
+  header: string;
+  key: keyof Omit<FundsUcCreatePayload, 'projectId'>;
+  kind: FundingFieldKind;
+  options?: readonly string[];
+}
+
+/**
+ * Funding Source lives on a separate entity (project_funds_uc), not the
+ * project row itself — parsed independently from FIELD_DEFS and, after the
+ * project is created, saved via its own createFundsUc call per row (see
+ * handleImport). A blank "Funding Source" cell means the row simply has no
+ * funding entry — every one of these columns is optional.
+ */
+const FUNDING_FIELD_DEFS: FundingFieldDef[] = [
+  { header: 'Funding Source of the Project', key: 'fundingSource', kind: 'enum', options: FUNDING_SOURCES },
+  { header: 'Opening Balance (Rs. Cr.)', key: 'openingBalanceCr', kind: 'number' },
+  { header: 'Grant Received (Rs. Cr.)', key: 'grantReceivedCr', kind: 'number' },
+  { header: 'Expenditure Incurred (Rs. Cr.)', key: 'expenditureIncurredCr', kind: 'number' },
+  { header: 'Central Share (Rs. Cr.)', key: 'centralShareCr', kind: 'number' },
+  { header: 'State Share (Rs. Cr.)', key: 'stateShareCr', kind: 'number' },
 ];
 
 function normalizeHeader(s: string): string {
@@ -202,6 +242,10 @@ interface ParsedRow {
   row: number;
   projectName: string;
   payload: ProjectUpsertPayload;
+  /** Non-null only when the row's "Funding Source of the Project" cell is
+   *  filled in — created via a separate createFundsUc call after the
+   *  project itself is created (see handleImport). */
+  fundingPayload: Omit<FundsUcCreatePayload, 'projectId'> | null;
 }
 
 interface ParseResult {
@@ -216,10 +260,13 @@ function parseWorkbook(
 ): ParseResult {
   const headerRow = sheet.getRow(HEADER_ROW);
   const colByKey = new Map<string, number>();
+  const fundingColByKey = new Map<string, number>();
   headerRow.eachCell({ includeEmpty: false }, (cell, colNumber) => {
     const header = normalizeHeader(cellText(cell.value));
     const def = FIELD_DEFS.find((f) => f.header === header);
     if (def) colByKey.set(def.key, colNumber);
+    const fundingDef = FUNDING_FIELD_DEFS.find((f) => f.header === header);
+    if (fundingDef) fundingColByKey.set(fundingDef.key, colNumber);
   });
 
   if (!colByKey.has('projectName')) {
@@ -242,7 +289,12 @@ function parseWorkbook(
     };
 
     const projectNameRaw = cellText(getRaw('projectName'));
-    const rowHasAnyValue = FIELD_DEFS.some((f) => cellText(getRaw(f.key)) !== '');
+    const rowHasAnyValue =
+      FIELD_DEFS.some((f) => cellText(getRaw(f.key)) !== '') ||
+      FUNDING_FIELD_DEFS.some((f) => {
+        const col = fundingColByKey.get(f.key);
+        return col ? cellText(row.getCell(col).value) !== '' : false;
+      });
     if (!rowHasAnyValue) continue; // blank template row — nothing to import
 
     const messages: string[] = [];
@@ -345,10 +397,53 @@ function parseWorkbook(
       }
     }
 
+    // Funding Source lives on a separate entity — parsed independently.
+    // A blank "Funding Source" cell means this row has no funding entry.
+    let fundingPayload: Omit<FundsUcCreatePayload, 'projectId'> | null = null;
+    const fundingSourceRaw = fundingColByKey.has('fundingSource')
+      ? row.getCell(fundingColByKey.get('fundingSource')!).value
+      : undefined;
+    const fundingSourceText = cellText(fundingSourceRaw);
+    if (fundingSourceText !== '') {
+      const fundingSource = matchEnum(fundingSourceRaw, FUNDING_SOURCES);
+      if (fundingSource === null) {
+        messages.push(
+          `"Funding Source of the Project" value "${fundingSourceText}" is not valid — expected one of: ${FUNDING_SOURCES.join(', ')}.`,
+        );
+      } else if (fundingSource !== undefined) {
+        const getFundingRaw = (key: string): unknown => {
+          const col = fundingColByKey.get(key);
+          return col ? row.getCell(col).value : undefined;
+        };
+        const money: Record<string, number | undefined> = {};
+        for (const key of ['openingBalanceCr', 'grantReceivedCr', 'expenditureIncurredCr', 'centralShareCr', 'stateShareCr']) {
+          const n = cellNumber(getFundingRaw(key));
+          if (n === null) {
+            const def = FUNDING_FIELD_DEFS.find((f) => f.key === key);
+            messages.push(`"${def?.header ?? key}" must be a number.`);
+          } else {
+            money[key] = n ?? undefined;
+          }
+        }
+        const isCentralStateShare = fundingSource === 'Central - State Share';
+        if (isCentralStateShare && (money.centralShareCr === undefined || money.stateShareCr === undefined)) {
+          messages.push('"Central Share (Rs. Cr.)" and "State Share (Rs. Cr.)" are both required when Funding Source is "Central - State Share".');
+        }
+        fundingPayload = {
+          fundingSource: fundingSource as FundingSource,
+          openingBalanceCr: money.openingBalanceCr ?? 0,
+          grantReceivedCr: money.grantReceivedCr ?? 0,
+          expenditureIncurredCr: money.expenditureIncurredCr ?? 0,
+          centralShareCr: isCentralStateShare ? money.centralShareCr ?? null : null,
+          stateShareCr: isCentralStateShare ? money.stateShareCr ?? null : null,
+        };
+      }
+    }
+
     if (messages.length > 0) {
       errors.push({ row: r, messages });
     } else {
-      rows.push({ row: r, projectName: projectNameRaw, payload: payload as ProjectUpsertPayload });
+      rows.push({ row: r, projectName: projectNameRaw, payload: payload as ProjectUpsertPayload, fundingPayload });
     }
   }
 
@@ -361,6 +456,7 @@ export function ImportProjectDialog({ onClose }: { onClose: () => void }): JSX.E
   const navigate = useNavigate();
   const lookups = useGetLookupsQuery();
   const [importProjects] = useImportProjectsMutation();
+  const [createFundsUc] = useCreateFundsUcMutation();
 
   const [stage, setStage] = useState<Stage>('idle');
   const [fileName, setFileName] = useState<string | null>(null);
@@ -368,6 +464,7 @@ export function ImportProjectDialog({ onClose }: { onClose: () => void }): JSX.E
   const [rows, setRows] = useState<ParsedRow[]>([]);
   const [rowErrors, setRowErrors] = useState<RowError[]>([]);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [fundingWarning, setFundingWarning] = useState<string | null>(null);
   const [createdCount, setCreatedCount] = useState(0);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -378,6 +475,7 @@ export function ImportProjectDialog({ onClose }: { onClose: () => void }): JSX.E
     setRows([]);
     setRowErrors([]);
     setSubmitError(null);
+    setFundingWarning(null);
     if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
@@ -417,9 +515,32 @@ export function ImportProjectDialog({ onClose }: { onClose: () => void }): JSX.E
   const handleImport = async (): Promise<void> => {
     setStage('importing');
     setSubmitError(null);
+    setFundingWarning(null);
     try {
       const res = await importProjects({ items: rows.map((r) => r.payload) }).unwrap();
       setCreatedCount(res.items.length);
+
+      // Funding Source lives on a separate entity — attach it per row now
+      // that each project has a real ID. A failure here doesn't undo the
+      // project (already created); it's surfaced as a warning instead.
+      const fundingFailures: string[] = [];
+      await Promise.all(
+        rows.map(async (row, i) => {
+          if (!row.fundingPayload) return;
+          const created = res.items[i];
+          if (!created) return;
+          try {
+            await createFundsUc({ projectId: created.projectId, ...row.fundingPayload }).unwrap();
+          } catch {
+            fundingFailures.push(row.projectName);
+          }
+        }),
+      );
+      if (fundingFailures.length > 0) {
+        setFundingWarning(
+          `Project(s) created, but Funding Source could not be saved for: ${fundingFailures.join(', ')}. Add it from the Input Sheet's Funding Source section instead.`,
+        );
+      }
       setStage('done');
     } catch (err) {
       setSubmitError(readError(err));
@@ -447,9 +568,16 @@ export function ImportProjectDialog({ onClose }: { onClose: () => void }): JSX.E
 
         <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-5 py-4">
           {stage === 'done' ? (
-            <div className="rounded border border-[#86EFAC] bg-[#F0FDF4] px-3 py-2.5 text-[13px] text-[#15803D]">
-              ✓ {createdCount} project{createdCount === 1 ? '' : 's'} created from {fileName}.
-            </div>
+            <>
+              <div className="rounded border border-[#86EFAC] bg-[#F0FDF4] px-3 py-2.5 text-[13px] text-[#15803D]">
+                ✓ {createdCount} project{createdCount === 1 ? '' : 's'} created from {fileName}.
+              </div>
+              {fundingWarning ? (
+                <div className="rounded border border-[#FDE68A] bg-[#FFFBEB] px-3 py-2.5 text-[12.5px] text-[#92400E]">
+                  ⚠ {fundingWarning}
+                </div>
+              ) : null}
+            </>
           ) : (
             <>
               <p className="text-[12.5px] text-[#6B7280]">

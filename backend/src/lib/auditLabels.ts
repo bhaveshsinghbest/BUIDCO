@@ -171,6 +171,8 @@ export const FUNDS_UC_LABELS: Record<string, string> = {
   openingBalanceCr: 'Opening balance (₹ Cr)',
   grantReceivedCr: 'Grant received (₹ Cr)',
   expenditureIncurredCr: 'Expenditure incurred (₹ Cr)',
+  centralShareCr: 'Central share (₹ Cr)',
+  stateShareCr: 'State share (₹ Cr)',
   sanctionNo: 'Sanction no.',
   ucSubmittedDate: 'UC submitted date',
   remarks: 'Remarks',

@@ -168,6 +168,28 @@ export function InputSheetPage(): JSX.Element {
     }
   };
 
+  /**
+   * Geo-Tagging photos and the Funding Source entry are child records that
+   * need a real project row to attach to. Rather than blocking those
+   * sections until the user manually saves (bhaveshTask.md — remove that
+   * restriction), silently create the project on first use if it doesn't
+   * exist yet, then switch into edit mode, same as clicking the main Save
+   * button. Project Name is still the one thing that has to be filled in
+   * first — there's no project to attach anything to without it.
+   */
+  const ensureProjectSaved = async (): Promise<string> => {
+    if (isEdit && projectId) return projectId;
+    if (!draft.projectName.trim()) {
+      setFlash({ text: 'Enter a Project Name first (Section 01) — everything else attaches to it.', kind: 'err' });
+      setSection('basic');
+      throw new Error('Project Name is required.');
+    }
+    const created = await createProject(draftToPayload(draft)).unwrap();
+    setFlash({ text: 'Project created — switching to edit mode.', kind: 'ok' });
+    navigate(`/input-sheet/${created.projectId}`, { replace: true });
+    return created.projectId;
+  };
+
   if (isEdit && detail.isLoading) {
     return (
       <div className="space-y-3">
@@ -426,6 +448,7 @@ export function InputSheetPage(): JSX.Element {
               draft={draft}
               setField={setField}
               photos={photos.data?.items ?? []}
+              onEnsureProjectSaved={ensureProjectSaved}
               {...(activeGroup === 'all' ? { num: '06' } : {})}
             />
           ) : null}
@@ -449,6 +472,7 @@ export function InputSheetPage(): JSX.Element {
             <FundingSourceSection
               projectId={projectId ?? null}
               entry={fundsUcEntry}
+              onEnsureProjectSaved={ensureProjectSaved}
               {...(activeGroup === 'all' ? { num: '09' } : {})}
             />
           ) : null}

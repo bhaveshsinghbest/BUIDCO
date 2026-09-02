@@ -7,15 +7,17 @@ import type { ProjectFundsUc } from '../db/schema.js';
 import { recordAudit, type AuditActor } from '../lib/audit.js';
 import { diffFundsUc } from '../lib/auditLabels.js';
 import { HttpError } from '../middleware/errorHandler.js';
-import { toNumberOrZero } from '../lib/numbers.js';
+import { toNumberOrNull, toNumberOrZero } from '../lib/numbers.js';
 
 type NumifiedFundsUc = Omit<
   ProjectFundsUc,
-  'openingBalanceCr' | 'grantReceivedCr' | 'expenditureIncurredCr'
+  'openingBalanceCr' | 'grantReceivedCr' | 'expenditureIncurredCr' | 'centralShareCr' | 'stateShareCr'
 > & {
   openingBalanceCr: number;
   grantReceivedCr: number;
   expenditureIncurredCr: number;
+  centralShareCr: number | null;
+  stateShareCr: number | null;
 };
 
 function numify(row: ProjectFundsUc): NumifiedFundsUc {
@@ -24,29 +26,55 @@ function numify(row: ProjectFundsUc): NumifiedFundsUc {
     openingBalanceCr: toNumberOrZero(row.openingBalanceCr),
     grantReceivedCr: toNumberOrZero(row.grantReceivedCr),
     expenditureIncurredCr: toNumberOrZero(row.expenditureIncurredCr),
+    centralShareCr: toNumberOrNull(row.centralShareCr),
+    stateShareCr: toNumberOrNull(row.stateShareCr),
   };
 }
 
-const moneyField = () => z.coerce.number().min(0).max(999_999).optional();
+const CENTRAL_STATE_SHARE = 'Central - State Share';
 
-export const fundsUcCreateSchema = z.object({
-  projectId: z.string().min(1),
+const moneyField = () => z.coerce.number().min(0).max(999_999).optional();
+const dateField = () =>
+  z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD')
+    .nullable()
+    .optional();
+
+const fundsUcBaseFields = {
   fundingSource: z.enum(fundingSources),
   openingBalanceCr: moneyField(),
   grantReceivedCr: moneyField(),
   expenditureIncurredCr: moneyField(),
+  /** Only meaningful when fundingSource = 'Central - State Share'; cleared
+   *  server-side otherwise (see clearShareFieldsIfNotApplicable below). */
+  centralShareCr: moneyField().nullable(),
+  stateShareCr: moneyField().nullable(),
   sanctionNo: z.string().max(80).nullable().optional(),
-  ucSubmittedDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD')
-    .nullable()
-    .optional(),
+  ucSubmittedDate: dateField(),
   remarks: z.string().max(20_000).nullable().optional(),
+};
+
+export const fundsUcCreateSchema = z.object({
+  projectId: z.string().min(1),
+  ...fundsUcBaseFields,
 });
-export const fundsUcUpdateSchema = fundsUcCreateSchema.omit({ projectId: true }).partial();
+export const fundsUcUpdateSchema = z.object(fundsUcBaseFields).partial();
 
 export type FundsUcCreateInput = z.infer<typeof fundsUcCreateSchema>;
 export type FundsUcUpdateInput = z.infer<typeof fundsUcUpdateSchema>;
+
+/** Central/State Share only apply to the 'Central - State Share' funding
+ *  source — null them out when a different source is (or ends up) selected,
+ *  so stale values from an earlier selection can't linger. */
+function clearShareFieldsIfNotApplicable(
+  fundingSource: string,
+  centralShareCr: number | null | undefined,
+  stateShareCr: number | null | undefined,
+): { centralShareCr: number | null; stateShareCr: number | null } {
+  if (fundingSource !== CENTRAL_STATE_SHARE) return { centralShareCr: null, stateShareCr: null };
+  return { centralShareCr: centralShareCr ?? null, stateShareCr: stateShareCr ?? null };
+}
 
 export async function listFundsUc(): Promise<NumifiedFundsUc[]> {
   const rows = await db
@@ -77,6 +105,7 @@ export async function createFundsUc(
       throw new HttpError(409, 'FUNDS_UC_EXISTS', 'This project already has a Funds & UC entry — edit it instead');
     }
 
+    const shares = clearShareFieldsIfNotApplicable(input.fundingSource, input.centralShareCr, input.stateShareCr);
     const [row] = await tx
       .insert(projectFundsUc)
       .values({
@@ -85,6 +114,8 @@ export async function createFundsUc(
         openingBalanceCr: input.openingBalanceCr?.toString() ?? '0',
         grantReceivedCr: input.grantReceivedCr?.toString() ?? '0',
         expenditureIncurredCr: input.expenditureIncurredCr?.toString() ?? '0',
+        centralShareCr: shares.centralShareCr?.toString() ?? null,
+        stateShareCr: shares.stateShareCr?.toString() ?? null,
         sanctionNo: input.sanctionNo ?? null,
         ucSubmittedDate: input.ucSubmittedDate ?? null,
         remarks: input.remarks ?? null,
@@ -129,6 +160,17 @@ export async function updateFundsUc(
       if (input.expenditureIncurredCr !== undefined) {
         patch.expenditureIncurredCr = input.expenditureIncurredCr.toString();
       }
+      // Recompute regardless of whether centralShareCr/stateShareCr were
+      // explicitly patched — a fundingSource change away from 'Central -
+      // State Share' must still clear any previously-saved share values.
+      const effectiveFundingSource = input.fundingSource ?? pre.fundingSource;
+      const shares = clearShareFieldsIfNotApplicable(
+        effectiveFundingSource,
+        input.centralShareCr !== undefined ? input.centralShareCr : toNumberOrNull(pre.centralShareCr),
+        input.stateShareCr !== undefined ? input.stateShareCr : toNumberOrNull(pre.stateShareCr),
+      );
+      patch.centralShareCr = shares.centralShareCr?.toString() ?? null;
+      patch.stateShareCr = shares.stateShareCr?.toString() ?? null;
 
       const [next] = await tx
         .update(projectFundsUc)

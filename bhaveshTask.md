@@ -1,61 +1,98 @@
-Analyze the Complete Project & Implement Changes Safely
-Analyze the complete project structure, architecture, components, routing, APIs, database/data flow, and existing functionality.
-Implement all requested changes without affecting existing features or workflows.
-Maintain the current project structure and coding patterns wherever possible.
-Ensure all existing functionality continues to work correctly.
-Maintain full responsiveness across desktop, tablet, and mobile devices.
-Avoid unnecessary changes to unrelated modules/components.
-Fix Block-Level Buttons in Funds & UC
-In the Funds & UC section, identify why the block-level buttons are currently not clickable.
-Make all applicable block-level buttons functional/clickable.
-Ensure the fix does not affect other buttons, navigation, or existing functionality.
-Verify proper hover, active, and disabled states where applicable.
-Remove Unwanted Description Line
 
-In the Funds & UC section, remove the following line:
 
-EAP / Non-EAP / State Share / State Funded — as filed in the GFR 12-A ledger.
+### Tender Dashboard – Filtering & Delay Enhancements
 
-Ensure removal does not create unwanted spacing or layout issues.
-Add Dummy Data to Funds & UC Tables
-Add realistic dummy/sample data to the By Funding Source table.
-Add realistic dummy/sample data to the UC Ledger — by Project (2 of 11) table.
-Ensure the dummy data follows the existing table structure, formatting, calculations, and UI patterns.
-Use sufficient data to properly demonstrate how the tables will look and function with actual project records.
-Do not replace or alter the existing table functionality.
-Add “Funding Source of the Project” Field to Input Sheet
-In the Input Sheet, where project details are entered, add a new field:
-Funding Source of the Project
-Implement it as a dropdown with the following four options:
-Central - EAP
-Central - Non-EAP
-Central - State Share
-State Funded
-Add Share Inputs Based on Funding Source
-When a funding source is selected, display the relevant share input fields.
-Provide inputs for entering the respective share amounts/percentages for the selected funding source.
-The user should be able to manually enter the share values.
-Clearly label the inputs so it is obvious which share belongs to which funding component.
-Add appropriate validation for the share inputs.
-Ensure the share values are correctly stored with the project details and available wherever project funding information is subsequently displayed or used.
-Connect Funding Source with Funds & UC
-Ensure the funding source entered in the Input Sheet is reflected correctly in the Funds & UC section.
-The selected category should map correctly to:
-Central - EAP
-Central - Non-EAP
-Central - State Share
-State Funded
-Ensure the corresponding share information is available for the By Funding Source and UC Ledger — by Project views where applicable.
-Testing & Regression Check
-Test the complete project after implementation.
-Verify:
-Existing dashboard functionality.
-Existing sidebar sections.
-Funds & UC navigation.
-Block-level buttons.
-Input Sheet project creation/editing.
-Funding source dropdown.
-Share inputs and validation.
-Funds & UC tables.
-Responsive behavior.
-Confirm there are no broken routes, console errors, UI regressions, or unintended changes to other project modules.
+1. **Analyze the Existing Tender Dashboard**
+
+   * Analyze the complete existing Tender Dashboard implementation, including frontend, backend, database structure, existing filters, project-stage blocks, and table functionality.
+   * Implement the following changes without affecting any existing functionality, project data, responsiveness, or UI behavior.
+
+2. **Add Filters After Selecting a Project Stage**
+
+   * In the **Tender Dashboard → Dashboard** section, when the user clicks any project-stage block, the corresponding project list/table is displayed.
+   * Add the following four dropdown filters above the displayed project table:
+
+     * **Execution Status**
+     * **Division**
+     * **Scheme**
+     * **Sector**
+   * Each dropdown should provide relevant values from the existing project data.
+   * Selecting a value should filter the displayed project list accordingly.
+   * The filters should work together, meaning multiple filters can be applied simultaneously.
+   * Include an option such as **All** in each dropdown to remove that particular filter.
+
+3. **Add Delay Filter**
+
+   * Add a filter to the **Delay** column in the Tender Dashboard project table.
+   * The Delay filter should provide checkbox/tick-mark options for:
+
+     * **> 15 Days**
+     * **> 30 Days**
+     * **> 60 Days**
+     * **> 90 Days**
+     * **More than 90 Days**
+   * Users should be able to select one or multiple delay options.
+   * The table should update based on the selected delay criteria.
+   * Ensure the delay filtering logic is consistent and does not produce duplicate or incorrect results.
+
+4. **Add Dummy Delayed Data to the Database**
+
+   * Add appropriate dummy project records to the database for testing the delay functionality.
+   * The dummy records should contain different delay durations so that all delay filter conditions can be properly tested, including:
+
+     * Projects delayed by more than 15 days
+     * Projects delayed by more than 30 days
+     * Projects delayed by more than 60 days
+     * Projects delayed by more than 90 days
+   * Ensure the dummy data is integrated into the existing database structure and does not overwrite or modify existing production/project data unnecessarily.
+   * Ensure the Delay value is correctly calculated and displayed in the Tender Dashboard.
+
+5. **Add Filters to All Applicable Table Columns**
+
+   * Add filtering functionality to **every applicable column** of the Tender Dashboard project table.
+   * Each column filter should be appropriate to its data type.
+   * Examples:
+
+     * Text-based columns → text/search filter
+     * Division → dropdown filter
+     * Date columns → appropriate date filter
+     * Status/stage columns → dropdown filter
+     * Delay → predefined delay filter
+   * Filters should work independently and in combination with each other.
+
+6. **Ensure Combined Filtering**
+
+   * The following filters must be capable of working simultaneously:
+
+     * Execution Status
+     * Division
+     * Scheme
+     * Sector
+     * Delay
+     * Individual table-column filters
+   * When multiple filters are applied, display only records satisfying **all active filter conditions**.
+   * Clearing one filter should remove only that filter's condition while keeping the remaining filters active.
+   * Provide a **Clear/Reset Filters** option to remove all applied filters.
+
+7. **Maintain Existing Functionality**
+
+   * Do not break or modify unrelated existing functionality.
+   * Existing project-stage blocks must continue to work correctly.
+   * Clicking a project-stage block must continue to display the correct corresponding projects.
+   * Existing project details, navigation, sorting, pagination, responsiveness, and other Tender Dashboard functionality must remain intact unless changes are specifically required for the new filtering functionality.
+
+8. **Frontend, Backend & Database Validation**
+
+   * Ensure the filtering logic is correctly implemented across the required frontend/backend layers.
+   * Verify that filters return accurate results from the database.
+   * Avoid unnecessary duplicate API calls or inefficient database queries.
+   * Ensure the implementation works correctly with existing and newly added dummy data.
+
+9. **Testing Requirements**
+
+   * Test every newly added filter individually.
+   * Test combinations of multiple filters.
+   * Test the Delay filter against all delay categories.
+   * Test clearing individual filters and clearing all filters.
+   * Verify that clicking each project-stage block continues to show the correct projects.
+   * Verify that existing functionality and responsive behavior remain unaffected.

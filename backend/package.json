@@ -22,6 +22,7 @@
     "db:seed-projects": "tsx src/db/seedProjects.ts",
     "db:seed-dummy-projects": "tsx src/db/seedDummyProjects.ts",
     "db:seed-dummy-tender": "tsx src/db/seedDummyTenderProjects.ts",
+    "db:seed-dummy-tender-delayed": "tsx src/db/seedDummyTenderDelayedProjects.ts",
     "db:seed-dummy-premonsoon": "tsx src/db/seedDummyPreMonsoon.ts",
     "db:seed-dummy-funds-uc": "tsx src/db/seedDummyFundsUc.ts",
     "db:seed-dummy-pds": "tsx src/db/seedDummyPDs.ts",

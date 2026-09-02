@@ -738,6 +738,9 @@ export interface FundsUcEntry {
   openingBalanceCr: number;
   grantReceivedCr: number;
   expenditureIncurredCr: number;
+  /** Only meaningful when fundingSource is 'Central - State Share'. */
+  centralShareCr: number | null;
+  stateShareCr: number | null;
   sanctionNo: string | null;
   ucSubmittedDate: string | null;
   remarks: string | null;
@@ -751,6 +754,8 @@ export interface FundsUcCreatePayload {
   openingBalanceCr?: number;
   grantReceivedCr?: number;
   expenditureIncurredCr?: number;
+  centralShareCr?: number | null;
+  stateShareCr?: number | null;
   sanctionNo?: string | null;
   ucSubmittedDate?: string | null;
   remarks?: string | null;

@@ -24,11 +24,14 @@ export function FundsUcForm({ initial, onCancel, onSubmit, busy }: Props): JSX.E
   const [openingBalanceCr, setOpeningBalanceCr] = useState(String(initial?.openingBalanceCr ?? 0));
   const [grantReceivedCr, setGrantReceivedCr] = useState(String(initial?.grantReceivedCr ?? 0));
   const [expenditureIncurredCr, setExpenditureIncurredCr] = useState(String(initial?.expenditureIncurredCr ?? 0));
+  const [centralShareCr, setCentralShareCr] = useState(initial?.centralShareCr != null ? String(initial.centralShareCr) : '');
+  const [stateShareCr, setStateShareCr] = useState(initial?.stateShareCr != null ? String(initial.stateShareCr) : '');
   const [sanctionNo, setSanctionNo] = useState(initial?.sanctionNo ?? '');
   const [ucSubmittedDate, setUcSubmittedDate] = useState(initial?.ucSubmittedDate ?? '');
   const [remarks, setRemarks] = useState(initial?.remarks ?? '');
   const [error, setError] = useState<string | null>(null);
 
+  const isCentralStateShare = fundingSource === 'Central - State Share';
   const projectsQ = useListProjectsQuery({ limit: 100 });
 
   const submit = async (): Promise<void> => {
@@ -37,12 +40,18 @@ export function FundsUcForm({ initial, onCancel, onSubmit, busy }: Props): JSX.E
       setError('Project is required.');
       return;
     }
+    if (isCentralStateShare && (centralShareCr.trim() === '' || stateShareCr.trim() === '')) {
+      setError('Enter both Central Share and State Share for "Central - State Share" funding.');
+      return;
+    }
     const body: FundsUcCreatePayload = {
       projectId: initial ? initial.projectId : projectId,
       fundingSource,
       openingBalanceCr: Number(openingBalanceCr) || 0,
       grantReceivedCr: Number(grantReceivedCr) || 0,
       expenditureIncurredCr: Number(expenditureIncurredCr) || 0,
+      centralShareCr: isCentralStateShare ? Number(centralShareCr) || 0 : null,
+      stateShareCr: isCentralStateShare ? Number(stateShareCr) || 0 : null,
       sanctionNo: sanctionNo.trim() || null,
       ucSubmittedDate: ucSubmittedDate || null,
       remarks: remarks.trim() || null,
@@ -119,6 +128,29 @@ export function FundsUcForm({ initial, onCancel, onSubmit, busy }: Props): JSX.E
           hint="Leave blank if the Utilization Certificate hasn't been filed yet."
         />
       </div>
+
+      {isCentralStateShare ? (
+        <div className="grid grid-cols-1 gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-3 md:grid-cols-2">
+          <FormField
+            label="Central Share (₹ Cr)"
+            type="number"
+            step="0.01"
+            min={0}
+            required
+            value={centralShareCr}
+            onChange={setCentralShareCr}
+          />
+          <FormField
+            label="State Share (₹ Cr)"
+            type="number"
+            step="0.01"
+            min={0}
+            required
+            value={stateShareCr}
+            onChange={setStateShareCr}
+          />
+        </div>
+      ) : null}
 
       <FormField label="Remarks" type="textarea" rows={2} value={remarks} onChange={setRemarks} />
 

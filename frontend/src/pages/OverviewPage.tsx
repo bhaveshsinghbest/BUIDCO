@@ -8,7 +8,6 @@ import { PbgAlertsCard } from '../components/overview/PbgAlertsCard';
 import { PbgExpiryBanner } from '../components/overview/PbgExpiryBanner';
 import { SectorSummaryCard } from '../components/overview/SectorSummaryCard';
 import { StageBucketsCard } from '../components/overview/StageBucketsCard';
-import { UniversalSearchBar } from '../components/layout/UniversalSearchBar';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
@@ -43,25 +42,22 @@ export function OverviewPage(): JSX.Element {
             Portfolio-wide view of every project managed by BUIDCO.
           </p>
         </div>
-        <div className="flex flex-col items-stretch gap-2 sm:items-end">
-          <UniversalSearchBar className="w-full sm:w-64 xl:w-80" />
-          <div className="flex items-center gap-2">
-            <ColumnsButton
-              columns={KPI_FIELDS}
-              visibility={visibility}
-              onToggle={toggle}
-              onShowAll={showAll}
-              onHideAll={hideAll}
-              label="Customize Fields"
-              panelTitle="Dashboard fields"
-            />
-            <Button variant="outline" size="sm" onClick={refetchAll} disabled={anyFetching}>
-              <span className={anyFetching ? 'animate-spin' : ''} aria-hidden>
-                ↻
-              </span>{' '}
-              {anyFetching ? 'Refreshing…' : 'Refresh'}
-            </Button>
-          </div>
+        <div className="flex items-center gap-2">
+          <ColumnsButton
+            columns={KPI_FIELDS}
+            visibility={visibility}
+            onToggle={toggle}
+            onShowAll={showAll}
+            onHideAll={hideAll}
+            label="Customize Fields"
+            panelTitle="Dashboard fields"
+          />
+          <Button variant="outline" size="sm" onClick={refetchAll} disabled={anyFetching}>
+            <span className={anyFetching ? 'animate-spin' : ''} aria-hidden>
+              ↻
+            </span>{' '}
+            {anyFetching ? 'Refreshing…' : 'Refresh'}
+          </Button>
         </div>
       </div>
 
