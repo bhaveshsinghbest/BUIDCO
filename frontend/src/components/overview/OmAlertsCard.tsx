@@ -10,7 +10,7 @@ export function OmAlertsCard(): JSX.Element {
   const items = data?.items ?? [];
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="flex-row items-center justify-between">
         <CardTitle>O&M Contracts Expiring</CardTitle>
         <Badge variant={items.length > 0 ? 'warning' : 'success'}>

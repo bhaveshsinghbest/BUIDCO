@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { actorFromReq } from '../lib/actor.js';
+import { actorFromReq, sessionDivisionId } from '../lib/actor.js';
 import { requireAuth, requireWriter } from '../middleware/auth.js';
 import * as service from '../services/fundsUcService.js';
 
@@ -10,9 +10,9 @@ fundsUcRouter.use(requireAuth);
 
 const idParam = z.object({ fundsUcId: z.coerce.number().int().positive() });
 
-fundsUcRouter.get('/', async (_req, res, next) => {
+fundsUcRouter.get('/', async (req, res, next) => {
   try {
-    res.json({ items: await service.listFundsUc() });
+    res.json({ items: await service.listFundsUc(sessionDivisionId(req)) });
   } catch (err) {
     next(err);
   }
@@ -29,7 +29,7 @@ const projectIdParam = z.object({ projectId: z.string().min(1) });
 fundsUcRouter.get('/project/:projectId', async (req, res, next) => {
   try {
     const { projectId } = projectIdParam.parse(req.params);
-    res.json(await service.getFundsUcByProject(projectId));
+    res.json(await service.getFundsUcByProject(projectId, sessionDivisionId(req)));
   } catch (err) {
     next(err);
   }

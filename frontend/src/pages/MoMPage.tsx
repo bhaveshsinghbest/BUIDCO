@@ -27,7 +27,7 @@ const STATUS_FILTERS: Array<MomStatus | 'All'> = [
 
 export function MoMPage(): JSX.Element {
   const listQ = useListMomQuery({ limit: 50 });
-  const projectsQ = useListProjectsQuery({ limit: 200 });
+  const projectsQ = useListProjectsQuery({ limit: 100 });
   const [createMom, createState] = useCreateMomMutation();
   const [updateMom, updateState] = useUpdateMomMutation();
   const [deleteMom, deleteState] = useDeleteMomMutation();

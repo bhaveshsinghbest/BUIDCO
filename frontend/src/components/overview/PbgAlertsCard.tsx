@@ -10,7 +10,7 @@ export function PbgAlertsCard(): JSX.Element {
   const items = data?.items ?? [];
 
   return (
-    <Card>
+    <Card className="min-w-0">
       <CardHeader className="flex-row items-center justify-between">
         <CardTitle>PBG Expiring ≤ 30 Days</CardTitle>
         <Badge variant={items.length > 0 ? 'danger' : 'success'}>

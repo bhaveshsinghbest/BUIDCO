@@ -50,9 +50,35 @@ const envSchema = z.object({
   SMTP_FROM: z.string().min(1).optional().or(z.literal('').transform(() => undefined)),
 });
 
+// rateLimit.ts and mailer.ts each degrade gracefully when their env vars are
+// missing (a no-op limiter; logging the OTP instead of sending it) so local
+// dev works without Upstash/SMTP — but both already log a "FATAL" warning
+// implying production must have them configured. That warning was never
+// backed by an actual check here, so a production deploy missing these vars
+// would previously start up fine and silently run with no rate limiting
+// and/or OTPs only ever written to server logs instead of delivered. Enforce
+// the already-stated intent at boot instead of degrading silently.
+const withProdRequirements = envSchema.superRefine((val, ctx) => {
+  if (val.NODE_ENV !== 'production') return;
+  if (!val.UPSTASH_REDIS_REST_URL || !val.UPSTASH_REDIS_REST_TOKEN) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'UPSTASH_REDIS_REST_URL and UPSTASH_REDIS_REST_TOKEN are required in production (rate limiting must not be silently disabled).',
+      path: ['UPSTASH_REDIS_REST_URL'],
+    });
+  }
+  if (!val.SMTP_HOST || !val.SMTP_USER || !val.SMTP_PASS) {
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: 'SMTP_HOST, SMTP_USER and SMTP_PASS are required in production (password-reset OTPs must be emailed, not just logged).',
+      path: ['SMTP_HOST'],
+    });
+  }
+});
+
 export type Env = z.infer<typeof envSchema>;
 
-const parsed = envSchema.safeParse(process.env);
+const parsed = withProdRequirements.safeParse(process.env);
 
 if (!parsed.success) {
   const formatted = parsed.error.flatten().fieldErrors;

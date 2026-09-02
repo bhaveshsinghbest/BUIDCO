@@ -167,39 +167,43 @@ export interface GetUserOptions {
   divisionId?: number | undefined;
 }
 
-export async function refresh(cookieValue: string, req: Request): Promise<RefreshResult> {
-  let parsed;
-  try {
-    parsed = parseRefreshCookie(cookieValue);
-  } catch {
-    throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token invalid');
-  }
+type RefreshTokenRow = typeof refreshToken.$inferSelect;
 
-  const [row] = await db
-    .select()
-    .from(refreshToken)
-    .where(eq(refreshToken.tokenId, parsed.payload.jti))
-    .limit(1);
+/**
+ * A hard page reload re-triggers the silent refresh flow from scratch. If
+ * one reload's refresh request is still in flight (server has rotated the
+ * token, but its Set-Cookie response hasn't reached the browser yet) when
+ * the NEXT reload fires its own refresh using the same now-stale cookie,
+ * that second request looks identical to an attacker replaying a stolen
+ * token. Tolerating reuse for a few seconds — but only by fast-forwarding
+ * to whatever the chain has already rotated to, never by accepting a token
+ * whose secret doesn't check out — keeps the "reuse = revoke everything"
+ * protection for genuine theft while not punishing this benign race.
+ */
+const REUSE_GRACE_MS = 5_000;
 
-  if (!row) {
-    throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token invalid');
+async function findLiveDescendantWithinGrace(row: RefreshTokenRow): Promise<RefreshTokenRow | null> {
+  let current = row;
+  for (let hops = 0; hops < 5; hops++) {
+    if (!current.revokedAt || Date.now() - current.revokedAt.getTime() > REUSE_GRACE_MS) {
+      return null;
+    }
+    if (!current.replacedBy) return null;
+    const [next] = await db
+      .select()
+      .from(refreshToken)
+      .where(eq(refreshToken.tokenId, current.replacedBy))
+      .limit(1);
+    if (!next) return null;
+    if (!next.revokedAt) return next; // live end of the chain, still within grace throughout
+    current = next;
   }
-  if (row.revokedAt) {
-    // Reuse of a rotated/revoked token is a red flag — nuke every active
-    // session for the user so an attacker holding an old copy can't proceed.
-    await db
-      .update(refreshToken)
-      .set({ revokedAt: new Date() })
-      .where(and(eq(refreshToken.userId, row.userId), isNull(refreshToken.revokedAt)));
-    throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token reuse detected');
-  }
+  return null;
+}
+
+async function finishRefresh(row: RefreshTokenRow, req: Request): Promise<RefreshResult> {
   if (row.expiresAt.getTime() <= Date.now()) {
     throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token expired');
-  }
-
-  const secretOk = await verifyRefreshSecret(parsed.rawSecret, row.tokenHash);
-  if (!secretOk) {
-    throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token invalid');
   }
 
   const [userRow] = await db
@@ -252,6 +256,53 @@ export async function refresh(cookieValue: string, req: Request): Promise<Refres
   });
 
   return { user, access, refresh: nextRefresh };
+}
+
+export async function refresh(cookieValue: string, req: Request): Promise<RefreshResult> {
+  let parsed;
+  try {
+    parsed = parseRefreshCookie(cookieValue);
+  } catch {
+    throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token invalid');
+  }
+
+  const [row] = await db
+    .select()
+    .from(refreshToken)
+    .where(eq(refreshToken.tokenId, parsed.payload.jti))
+    .limit(1);
+
+  if (!row) {
+    throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token invalid');
+  }
+  if (row.revokedAt) {
+    // The presented secret must still check out against the token this
+    // reuse actually belongs to — a grace period isn't a way to skip proving
+    // possession of a genuinely-issued token.
+    const secretOk = await verifyRefreshSecret(parsed.rawSecret, row.tokenHash);
+    const liveDescendant = secretOk ? await findLiveDescendantWithinGrace(row) : null;
+    if (liveDescendant) {
+      return finishRefresh(liveDescendant, req);
+    }
+    // Outside the grace window (or the secret didn't match at all) — reuse
+    // of a rotated/revoked token is a red flag — nuke every active session
+    // for the user so an attacker holding an old copy can't proceed.
+    await db
+      .update(refreshToken)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(refreshToken.userId, row.userId), isNull(refreshToken.revokedAt)));
+    throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token reuse detected');
+  }
+  if (row.expiresAt.getTime() <= Date.now()) {
+    throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token expired');
+  }
+
+  const secretOk = await verifyRefreshSecret(parsed.rawSecret, row.tokenHash);
+  if (!secretOk) {
+    throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token invalid');
+  }
+
+  return finishRefresh(row, req);
 }
 
 export async function logout(cookieValue: string | undefined): Promise<void> {

@@ -8,6 +8,7 @@ import { recordAudit, type AuditActor } from '../lib/audit.js';
 import { diffFundsUc } from '../lib/auditLabels.js';
 import { HttpError } from '../middleware/errorHandler.js';
 import { toNumberOrNull, toNumberOrZero } from '../lib/numbers.js';
+import { assertPdCanAccessProject } from './projectsService.js';
 
 type NumifiedFundsUc = Omit<
   ProjectFundsUc,
@@ -88,18 +89,33 @@ function clearShareFieldsIfNotApplicable(
   return { centralSharePct: central, stateSharePct: state };
 }
 
-export async function listFundsUc(): Promise<NumifiedFundsUc[]> {
+/**
+ * `pdDivisionId` mirrors the scoping already applied to /api/projects and
+ * /api/kpis — a PD only sees funds/UC entries for projects in their own
+ * assigned division. Null (MD/Admin/Viewer) means portfolio-wide, unchanged.
+ */
+export async function listFundsUc(pdDivisionId: number | null = null): Promise<NumifiedFundsUc[]> {
   const rows = await db
-    .select()
+    .select({ fundsUc: projectFundsUc })
     .from(projectFundsUc)
+    .innerJoin(project, eq(project.projectId, projectFundsUc.projectId))
+    .where(pdDivisionId !== null ? eq(project.divisionId, pdDivisionId) : undefined)
     .orderBy(desc(projectFundsUc.createdAt), desc(projectFundsUc.fundsUcId));
-  return rows.map(numify);
+  return rows.map((r) => numify(r.fundsUc));
 }
 
 /** Single-project lookup — used by every "individual project details" view
  *  (Input Sheet, Project Details page, MD Portfolio) instead of each one
- *  fetching the entire ledger and filtering client-side. */
-export async function getFundsUcByProject(projectId: string): Promise<NumifiedFundsUc | null> {
+ *  fetching the entire ledger and filtering client-side. Same PD
+ *  division guard as /api/projects/:projectId (404s, not 403s, on a
+ *  project outside the PD's division — avoids leaking its existence). */
+export async function getFundsUcByProject(
+  projectId: string,
+  pdDivisionId: number | null = null,
+): Promise<NumifiedFundsUc | null> {
+  if (pdDivisionId !== null) {
+    await assertPdCanAccessProject(projectId, pdDivisionId);
+  }
   const [row] = await db
     .select()
     .from(projectFundsUc)
