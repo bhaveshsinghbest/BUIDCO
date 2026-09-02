@@ -142,8 +142,8 @@ const COLUMNS: ColumnSpec[] = [
   { section: '09 · Funding Source', header: 'Opening Balance (Rs. Cr.)', key: 'openingBalanceCr', type: 'number', width: 20 },
   { section: '09 · Funding Source', header: 'Grant Received (Rs. Cr.)', key: 'grantReceivedCr', type: 'number', width: 20 },
   { section: '09 · Funding Source', header: 'Expenditure Incurred (Rs. Cr.)', key: 'expenditureIncurredCr', type: 'number', width: 22 },
-  { section: '09 · Funding Source', header: 'Central Share (Rs. Cr.)', key: 'centralShareCr', type: 'number', note: 'Only when Funding Source = "Central - State Share".', width: 20 },
-  { section: '09 · Funding Source', header: 'State Share (Rs. Cr.)', key: 'stateShareCr', type: 'number', note: 'Only when Funding Source = "Central - State Share".', width: 20 },
+  { section: '09 · Funding Source', header: 'Central Share (%)', key: 'centralSharePct', type: 'percent', note: 'Only when Funding Source = "Central - State Share". Central % + State % must not exceed 100.', width: 18 },
+  { section: '09 · Funding Source', header: 'State Share (%)', key: 'stateSharePct', type: 'percent', note: 'Only when Funding Source = "Central - State Share". Central % + State % must not exceed 100.', width: 18 },
 ];
 
 const SECTION_COLOR: Record<string, string> = {

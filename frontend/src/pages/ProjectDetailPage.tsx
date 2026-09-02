@@ -5,6 +5,7 @@ import { useListCosEotForProjectQuery } from '../app/api/cosEotApi';
 import { useListMgmtActionsForProjectQuery } from '../app/api/mgmtActionsApi';
 import { useListMilestonesQuery } from '../app/api/milestonesApi';
 import { useListGeoPhotosQuery } from '../app/api/geoPhotosApi';
+import { useGetFundsUcByProjectQuery } from '../app/api/fundsUcApi';
 import { useAppSelector } from '../app/hooks';
 import { RoleGate } from '../components/auth/RoleGate';
 import { OmAlertCell } from '../components/projects/OmAlertCell';
@@ -16,6 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Skeleton } from '../components/ui/skeleton';
 import { selectCurrentUser } from '../features/auth/authSlice';
 import { formatCurrencyCr, formatDate, formatPercent } from '../lib/formatters';
+import { fundsUcStatusOf } from '../lib/fundsUc';
 import type { ProjectDetail } from '../types/api';
 
 export function ProjectDetailPage(): JSX.Element {
@@ -27,6 +29,7 @@ export function ProjectDetailPage(): JSX.Element {
   const mgmt = useListMgmtActionsForProjectQuery(projectId ?? '', { skip: !projectId });
   const milestones = useListMilestonesQuery(projectId ?? '', { skip: !projectId });
   const photos = useListGeoPhotosQuery(projectId ?? '', { skip: !projectId });
+  const fundsUc = useGetFundsUcByProjectQuery(projectId ?? '', { skip: !projectId });
 
   if (!projectId) {
     return <ErrorPanel message="Missing project id in URL." />;
@@ -209,6 +212,45 @@ export function ProjectDetailPage(): JSX.Element {
                 { label: 'Last RA Bill No.', value: project.lastRaBillNo },
               ]}
             />
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>Funding Source & UC</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {fundsUc.isLoading ? (
+              <Skeleton className="h-24 w-full" />
+            ) : !fundsUc.data ? (
+              <p className="text-sm text-[#6B7280]">
+                No Funding Source recorded yet. Add it from the Input Sheet&apos;s Funding Source section.
+              </p>
+            ) : (
+              <FieldGrid
+                fields={[
+                  { label: 'Funding Source', value: fundsUc.data.fundingSource },
+                  ...(fundsUc.data.fundingSource === 'Central - State Share'
+                    ? [
+                        { label: 'Central Share', value: formatPercent(fundsUc.data.centralSharePct, 0) },
+                        { label: 'State Share', value: formatPercent(fundsUc.data.stateSharePct, 0) },
+                      ]
+                    : []),
+                  { label: 'Opening Balance', value: formatCurrencyCr(fundsUc.data.openingBalanceCr) },
+                  { label: 'Grant Received', value: formatCurrencyCr(fundsUc.data.grantReceivedCr) },
+                  { label: 'Expenditure Incurred', value: formatCurrencyCr(fundsUc.data.expenditureIncurredCr) },
+                  {
+                    label: 'Closing Balance',
+                    value: formatCurrencyCr(
+                      fundsUc.data.openingBalanceCr + fundsUc.data.grantReceivedCr - fundsUc.data.expenditureIncurredCr,
+                    ),
+                  },
+                  { label: 'Sanction No.', value: fundsUc.data.sanctionNo },
+                  { label: 'UC Submitted Date', value: formatDate(fundsUc.data.ucSubmittedDate) },
+                  { label: 'UC Status', value: fundsUcStatusOf(fundsUc.data) },
+                ]}
+              />
+            )}
           </CardContent>
         </Card>
 

@@ -24,6 +24,9 @@ export type ProjectFieldKey =
   | 'pbgNumber' | 'pbgAmountCr' | 'pbgIssuingBank' | 'pbgExpiryDate'
   | 'emdAmountCr' | 'emdRefNumber' | 'emdDate'
   | 'omStartDate' | 'omEndDate' | 'omPeriodMonths' | 'omAgency' | 'omRemarks'
+  | 'fundsUcSource' | 'fundsUcCentralShare' | 'fundsUcStateShare' | 'fundsUcOpeningBalance'
+  | 'fundsUcGrantReceived' | 'fundsUcExpenditure' | 'fundsUcClosingBalance'
+  | 'fundsUcSanctionNo' | 'fundsUcSubmittedDate' | 'fundsUcStatus'
   | 'projectBrief' | 'mainComponentScope';
 
 export interface ProjectFieldDef { key: ProjectFieldKey; label: string; defaultOn: boolean }
@@ -110,6 +113,24 @@ export const PROJECT_FIELD_GROUPS: ProjectFieldGroup[] = [
       { key: 'omPeriodMonths', label: 'O&M Period (months)', defaultOn: false },
       { key: 'omAgency',       label: 'O&M Agency',          defaultOn: false },
       { key: 'omRemarks',      label: 'O&M Remarks',         defaultOn: false },
+    ],
+  },
+  {
+    // Default ON (unlike the other extras groups) so UC Funds is visible the
+    // moment a project is opened from MD Portfolio, matching the Project
+    // Details page and Project Profile modal, which show it unconditionally.
+    group: 'Funding Source & UC',
+    fields: [
+      { key: 'fundsUcSource',         label: 'Funding Source',       defaultOn: true },
+      { key: 'fundsUcCentralShare',   label: 'Central Share',        defaultOn: true },
+      { key: 'fundsUcStateShare',     label: 'State Share',          defaultOn: true },
+      { key: 'fundsUcOpeningBalance', label: 'Opening Balance',      defaultOn: true },
+      { key: 'fundsUcGrantReceived',  label: 'Grant Received',       defaultOn: true },
+      { key: 'fundsUcExpenditure',    label: 'Expenditure Incurred', defaultOn: true },
+      { key: 'fundsUcClosingBalance', label: 'Closing Balance',      defaultOn: true },
+      { key: 'fundsUcSanctionNo',     label: 'Sanction No.',         defaultOn: true },
+      { key: 'fundsUcSubmittedDate',  label: 'UC Submitted Date',    defaultOn: true },
+      { key: 'fundsUcStatus',         label: 'UC Status',            defaultOn: true },
     ],
   },
   {

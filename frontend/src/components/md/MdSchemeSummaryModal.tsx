@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useGetLookupsQuery } from '../../app/api/lookupsApi';
 import { useGetDelayStatusQuery } from '../../app/api/kpisApi';
 import { useGetProjectQuery, useListProjectsQuery } from '../../app/api/projectsApi';
+import { useGetFundsUcByProjectQuery } from '../../app/api/fundsUcApi';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import { OmAlertCell } from '../projects/OmAlertCell';
@@ -9,10 +10,11 @@ import { PbgAlertCell } from '../projects/PbgAlertCell';
 import { PriorityBadge } from '../projects/PriorityBadge';
 import { ProgressBar } from '../projects/ProgressBar';
 import { StatusBadge } from '../projects/StatusBadge';
-import type { Lookups, ProjectDetail, ProjectListItem } from '../../types/api';
+import type { FundsUcEntry, Lookups, ProjectDetail, ProjectListItem } from '../../types/api';
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { cn } from '../../lib/utils';
 import { formatCurrencyCr, formatDate, formatPercent } from '../../lib/formatters';
+import { fundsUcStatusOf } from '../../lib/fundsUc';
 import { downloadProjectPdf, downloadProjectPptx } from '../../lib/mdProjectExport';
 import { RemarksButton, RemarksDialog } from '../projects/RemarksDialog';
 import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../ui/ColumnFilter';
@@ -145,7 +147,10 @@ const DEFAULT_COL_VIS = Object.fromEntries(
 // ── localStorage helpers (buidco_md_popup_*_v1 per spec §7) ──────────────────
 const LS_KPI_KEY  = 'buidco_md_popup_left_fields_v1';
 const LS_COLS_KEY = 'buidco_md_popup_right_columns_v1';
-const LS_PROJ_KEY = 'buidco_md_popup_project_fields_v1';
+// v2: Funding Source & UC fields switched to defaultOn=true — bumped so
+// users with an old saved snapshot (which would still carry `false` for
+// those keys and silently override the new default) get a clean start.
+const LS_PROJ_KEY = 'buidco_md_popup_project_fields_v2';
 
 function loadVis<K extends string>(
   storageKey: string,
@@ -231,6 +236,9 @@ export function MdSchemeSummaryModal({ open, onClose }: Props): JSX.Element | nu
   // Full ProjectDetail — needed for core fields (Name of Work, Agreement Number,
   // Agreement Date) that aren't on the light ProjectListItem.
   const projectDetailQuery = useGetProjectQuery(activeProjectId ?? '', {
+    skip: !open || activeProjectId === null,
+  });
+  const fundsUcQuery = useGetFundsUcByProjectQuery(activeProjectId ?? '', {
     skip: !open || activeProjectId === null,
   });
 
@@ -734,6 +742,8 @@ export function MdSchemeSummaryModal({ open, onClose }: Props): JSX.Element | nu
                   listItem={activeProject}
                   detail={projectDetailQuery.data ?? null}
                   detailLoading={projectDetailQuery.isLoading}
+                  fundsUc={fundsUcQuery.data ?? null}
+                  fundsUcLoading={fundsUcQuery.isLoading}
                   vis={projVis}
                   districtsById={districtsById}
                   divisionsById={divisionsById}
@@ -1214,12 +1224,14 @@ function ProjectList({
 // list item's data while the full ProjectDetail is still loading, so the panel
 // paints instantly on click.
 function ProjectDetailsBody({
-  listItem, detail, detailLoading, vis,
+  listItem, detail, detailLoading, fundsUc, fundsUcLoading, vis,
   districtsById, divisionsById, sectorsById, schemesById,
 }: {
   listItem: ProjectListItem;
   detail: ProjectDetail | null;
   detailLoading: boolean;
+  fundsUc: FundsUcEntry | null;
+  fundsUcLoading: boolean;
   vis: Record<ProjectFieldKey, boolean>;
   districtsById: Map<number, string>;
   divisionsById: Map<number, { name: string; regionName: string }>;
@@ -1323,6 +1335,36 @@ function ProjectDetailsBody({
       case 'omPeriodMonths': return { label: 'O&M Period (months)', value: p.omPeriodMonths != null ? String(p.omPeriodMonths) : '—' };
       case 'omAgency':       return { label: 'O&M Agency',          value: asDetail?.omAgency ?? '—' };
       case 'omRemarks':      return { label: 'O&M Remarks',         value: asDetail?.omRemarks ?? '—', fullWidth: true, preserveNewlines: true };
+
+      case 'fundsUcSource':
+        return { label: 'Funding Source', value: fundsUc?.fundingSource ?? (fundsUcLoading ? '…' : '—') };
+      case 'fundsUcCentralShare':
+        return fundsUc?.fundingSource === 'Central - State Share'
+          ? { label: 'Central Share', value: formatPercent(fundsUc.centralSharePct, 0) }
+          : null;
+      case 'fundsUcStateShare':
+        return fundsUc?.fundingSource === 'Central - State Share'
+          ? { label: 'State Share', value: formatPercent(fundsUc.stateSharePct, 0) }
+          : null;
+      case 'fundsUcOpeningBalance':
+        return { label: 'Opening Balance', value: formatCurrencyCr(fundsUc?.openingBalanceCr) };
+      case 'fundsUcGrantReceived':
+        return { label: 'Grant Received', value: formatCurrencyCr(fundsUc?.grantReceivedCr) };
+      case 'fundsUcExpenditure':
+        return { label: 'Expenditure Incurred', value: formatCurrencyCr(fundsUc?.expenditureIncurredCr) };
+      case 'fundsUcClosingBalance':
+        return {
+          label: 'Closing Balance',
+          value: fundsUc
+            ? formatCurrencyCr(fundsUc.openingBalanceCr + fundsUc.grantReceivedCr - fundsUc.expenditureIncurredCr)
+            : '—',
+        };
+      case 'fundsUcSanctionNo':
+        return { label: 'Sanction No.', value: fundsUc?.sanctionNo ?? '—' };
+      case 'fundsUcSubmittedDate':
+        return { label: 'UC Submitted Date', value: formatDate(fundsUc?.ucSubmittedDate) };
+      case 'fundsUcStatus':
+        return { label: 'UC Status', value: fundsUc ? fundsUcStatusOf(fundsUc) : '—' };
 
       case 'projectBrief':       return { label: 'Project Brief',          value: asDetail?.projectBrief ?? '—', fullWidth: true, preserveNewlines: true };
       case 'mainComponentScope': return { label: 'Main Component / Scope', value: asDetail?.mainComponentScope ?? '—', fullWidth: true, preserveNewlines: true };

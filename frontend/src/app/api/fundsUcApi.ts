@@ -7,6 +7,14 @@ export const fundsUcApi = api.injectEndpoints({
       query: () => 'funds-uc',
       providesTags: ['FundsUc'],
     }),
+    /** Single-project lookup — used by every individual project-details view
+     *  (Input Sheet, Project Details, MD Portfolio) instead of fetching the
+     *  entire ledger just to find one row. `null` means no entry yet — a
+     *  normal state, not an error. */
+    getFundsUcByProject: build.query<FundsUcEntry | null, string>({
+      query: (projectId) => `funds-uc/project/${projectId}`,
+      providesTags: ['FundsUc'],
+    }),
     createFundsUc: build.mutation<FundsUcEntry, FundsUcCreatePayload>({
       query: (body) => ({ url: 'funds-uc', method: 'POST', body }),
       invalidatesTags: ['FundsUc'],
@@ -25,6 +33,7 @@ export const fundsUcApi = api.injectEndpoints({
 
 export const {
   useListFundsUcQuery,
+  useGetFundsUcByProjectQuery,
   useCreateFundsUcMutation,
   useUpdateFundsUcMutation,
   useDeleteFundsUcMutation,

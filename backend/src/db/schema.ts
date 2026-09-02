@@ -343,9 +343,10 @@ export const projectFundsUc = pgTable(
     grantReceivedCr: numeric('grant_received_cr', { precision: 12, scale: 2 }).notNull().default('0'),
     expenditureIncurredCr: numeric('expenditure_incurred_cr', { precision: 12, scale: 2 }).notNull().default('0'),
     /** Only meaningful when fundingSource = 'Central - State Share' — the
-     *  split of that combined share between the Centre and the State. */
-    centralShareCr: numeric('central_share_cr', { precision: 12, scale: 2 }),
-    stateShareCr: numeric('state_share_cr', { precision: 12, scale: 2 }),
+     *  split of that combined share between the Centre and the State, as a
+     *  PERCENTAGE (0-100), not a ₹ Cr amount. */
+    centralSharePct: numeric('central_share_pct', { precision: 5, scale: 2 }),
+    stateSharePct: numeric('state_share_pct', { precision: 5, scale: 2 }),
     sanctionNo: varchar('sanction_no', { length: 80 }),
     ucSubmittedDate: date('uc_submitted_date'),
     remarks: text('remarks'),

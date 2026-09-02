@@ -18,6 +18,23 @@ fundsUcRouter.get('/', async (_req, res, next) => {
   }
 });
 
+/**
+ * Single-project lookup — every "individual project details" view (Input
+ * Sheet, Project Details page, MD Portfolio) uses this instead of fetching
+ * the entire ledger and filtering client-side. Returns `null` (200) rather
+ * than 404 when the project simply has no Funds & UC entry yet — that's a
+ * normal, common state, not an error.
+ */
+const projectIdParam = z.object({ projectId: z.string().min(1) });
+fundsUcRouter.get('/project/:projectId', async (req, res, next) => {
+  try {
+    const { projectId } = projectIdParam.parse(req.params);
+    res.json(await service.getFundsUcByProject(projectId));
+  } catch (err) {
+    next(err);
+  }
+});
+
 fundsUcRouter.post('/', requireWriter, async (req, res, next) => {
   try {
     const body = service.fundsUcCreateSchema.parse(req.body);

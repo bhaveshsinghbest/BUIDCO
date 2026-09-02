@@ -1,98 +1,63 @@
+### Reframed Tasks – Funding Source & UC Funds
 
+1. **Analyze the Complete Project**
 
-### Tender Dashboard – Filtering & Delay Enhancements
+   * Analyze the entire existing project, including frontend, backend, database, APIs, project creation flow, project details pages, and MD Portfolio.
+   * Implement all the changes below without affecting existing functionality, responsiveness, existing projects, or other modules.
 
-1. **Analyze the Existing Tender Dashboard**
+2. **Update Funding Source – Central/State Share**
 
-   * Analyze the complete existing Tender Dashboard implementation, including frontend, backend, database structure, existing filters, project-stage blocks, and table functionality.
-   * Implement the following changes without affecting any existing functionality, project data, responsiveness, or UI behavior.
+   * In the **Input Sheet → Funding Source of the Project**, update the **Central-State Share** dropdown/input functionality.
+   * When **Central-State Share** is selected, the **Central Share** and **State Share** fields must be entered/displayed as **percentages (%)**, not in **Crores**.
+   * Update the frontend labels, input fields, validation, calculations, and display wherever required.
+   * Update the **database structure and stored data** accordingly so that Central Share and State Share are stored as percentages.
+   * Ensure existing funding-source functionality and other funding-source options continue to work correctly.
+   * Verify that the total Central Share + State Share is handled correctly according to the existing project logic.
 
-2. **Add Filters After Selecting a Project Stage**
+3. **Fix UC Funds Not Showing in Project Details**
 
-   * In the **Tender Dashboard → Dashboard** section, when the user clicks any project-stage block, the corresponding project list/table is displayed.
-   * Add the following four dropdown filters above the displayed project table:
+   * In the **Input Sheet**, when a project is created by entering all required details, including **UC Funds details**, ensure the UC Funds information is successfully saved.
+   * Currently, after creating a project, the **UC Funds details are not displayed** when opening the individual project.
+   * Fix the complete data flow so that UC Funds entered during project creation are:
 
-     * **Execution Status**
-     * **Division**
-     * **Scheme**
-     * **Sector**
-   * Each dropdown should provide relevant values from the existing project data.
-   * Selecting a value should filter the displayed project list accordingly.
-   * The filters should work together, meaning multiple filters can be applied simultaneously.
-   * Include an option such as **All** in each dropdown to remove that particular filter.
+     * Saved correctly in the database.
+     * Retrieved correctly through the required APIs.
+     * Displayed correctly in the individual **Project Details** section.
+   * Ensure UC Funds are displayed for both newly created projects and existing projects where UC Funds data is available.
 
-3. **Add Delay Filter**
+4. **Fix UC Funds in MD Portfolio**
 
-   * Add a filter to the **Delay** column in the Tender Dashboard project table.
-   * The Delay filter should provide checkbox/tick-mark options for:
+   * When a user opens a project through the **MD Portfolio** and views the individual project details, the **UC Funds details must also be displayed**.
+   * Ensure the same UC Funds data is consistently available in:
 
-     * **> 15 Days**
-     * **> 30 Days**
-     * **> 60 Days**
-     * **> 90 Days**
-     * **More than 90 Days**
-   * Users should be able to select one or multiple delay options.
-   * The table should update based on the selected delay criteria.
-   * Ensure the delay filtering logic is consistent and does not produce duplicate or incorrect results.
+     * Input Sheet
+     * Individual Project Details
+     * MD Portfolio → Individual Project Details
+     * Any other existing project-detail views where project financial/funding information is displayed.
 
-4. **Add Dummy Delayed Data to the Database**
+5. **Audit UC Funds Throughout the Entire Project**
 
-   * Add appropriate dummy project records to the database for testing the delay functionality.
-   * The dummy records should contain different delay durations so that all delay filter conditions can be properly tested, including:
+   * Since the **UC Funds section was recently added**, perform a complete audit of the application to identify every location where individual project details are displayed.
+   * Check whether **UC Funds details are available and correctly displayed** in every relevant project-detail section, page, modal, dashboard, portfolio, API response, and related component.
+   * Wherever UC Funds are missing, update the implementation so the information is consistently available.
+   * Do not create duplicate UC Funds fields or duplicate data storage.
 
-     * Projects delayed by more than 15 days
-     * Projects delayed by more than 30 days
-     * Projects delayed by more than 60 days
-     * Projects delayed by more than 90 days
-   * Ensure the dummy data is integrated into the existing database structure and does not overwrite or modify existing production/project data unnecessarily.
-   * Ensure the Delay value is correctly calculated and displayed in the Tender Dashboard.
+6. **Database & Existing Project Data**
 
-5. **Add Filters to All Applicable Table Columns**
+   * Verify that the database contains the required UC Funds fields/tables/relationships.
+   * Ensure the database changes are backward-compatible with existing projects.
+   * Do not delete, overwrite, or corrupt existing project data.
+   * Where required, update existing records/migrations so that previously created projects can also correctly display their available UC Funds information.
 
-   * Add filtering functionality to **every applicable column** of the Tender Dashboard project table.
-   * Each column filter should be appropriate to its data type.
-   * Examples:
+7. **End-to-End Validation**
 
-     * Text-based columns → text/search filter
-     * Division → dropdown filter
-     * Date columns → appropriate date filter
-     * Status/stage columns → dropdown filter
-     * Delay → predefined delay filter
-   * Filters should work independently and in combination with each other.
+   * Create a test project through the Input Sheet with complete Funding Source and UC Funds details.
+   * Verify that:
 
-6. **Ensure Combined Filtering**
-
-   * The following filters must be capable of working simultaneously:
-
-     * Execution Status
-     * Division
-     * Scheme
-     * Sector
-     * Delay
-     * Individual table-column filters
-   * When multiple filters are applied, display only records satisfying **all active filter conditions**.
-   * Clearing one filter should remove only that filter's condition while keeping the remaining filters active.
-   * Provide a **Clear/Reset Filters** option to remove all applied filters.
-
-7. **Maintain Existing Functionality**
-
-   * Do not break or modify unrelated existing functionality.
-   * Existing project-stage blocks must continue to work correctly.
-   * Clicking a project-stage block must continue to display the correct corresponding projects.
-   * Existing project details, navigation, sorting, pagination, responsiveness, and other Tender Dashboard functionality must remain intact unless changes are specifically required for the new filtering functionality.
-
-8. **Frontend, Backend & Database Validation**
-
-   * Ensure the filtering logic is correctly implemented across the required frontend/backend layers.
-   * Verify that filters return accurate results from the database.
-   * Avoid unnecessary duplicate API calls or inefficient database queries.
-   * Ensure the implementation works correctly with existing and newly added dummy data.
-
-9. **Testing Requirements**
-
-   * Test every newly added filter individually.
-   * Test combinations of multiple filters.
-   * Test the Delay filter against all delay categories.
-   * Test clearing individual filters and clearing all filters.
-   * Verify that clicking each project-stage block continues to show the correct projects.
-   * Verify that existing functionality and responsive behavior remain unaffected.
+     * Central/State Share is stored and displayed in **%**.
+     * UC Funds are saved successfully.
+     * UC Funds appear in the individual Project Details page.
+     * UC Funds appear in MD Portfolio → Project Details.
+     * UC Funds appear in all other applicable project-detail sections.
+   * Verify existing projects and all unrelated functionality continue to work correctly.
+   * Ensure the entire application remains **responsive** across supported screen sizes.

@@ -15,7 +15,8 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
 import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../components/ui/ColumnFilter';
-import { formatCurrencyCr, formatDate } from '../lib/formatters';
+import { formatCurrencyCr, formatDate, formatPercent } from '../lib/formatters';
+import { fundsUcStatusOf } from '../lib/fundsUc';
 import { cn } from '../lib/utils';
 import type { FundingSource, FundsUcCreatePayload, FundsUcEntry, FundsUcStatus } from '../types/api';
 
@@ -25,12 +26,6 @@ const FUNDING_SOURCES: FundingSource[] = [
   'Central - State Share',
   'State Funded',
 ];
-
-function statusOf(entry: FundsUcEntry): FundsUcStatus {
-  if (entry.ucSubmittedDate) return 'Submitted';
-  if (entry.expenditureIncurredCr > 0) return 'Overdue';
-  return 'Pending';
-}
 
 function closingBalanceOf(entry: FundsUcEntry): number {
   return entry.openingBalanceCr + entry.grantReceivedCr - entry.expenditureIncurredCr;
@@ -100,7 +95,7 @@ export function FundsUcPage(): JSX.Element {
           divisionName,
           schemeNames,
           closingBalanceCr: closingBalanceOf(entry),
-          status: statusOf(entry),
+          status: fundsUcStatusOf(entry),
         };
       }),
     [items, projectsById, divisionNameById, schemeNameById],
@@ -161,7 +156,7 @@ export function FundsUcPage(): JSX.Element {
   const handleUpdate = async (fundsUcId: number, body: FundsUcCreatePayload): Promise<void> => {
     const {
       fundingSource, openingBalanceCr, grantReceivedCr, expenditureIncurredCr,
-      centralShareCr, stateShareCr, sanctionNo, ucSubmittedDate, remarks,
+      centralSharePct, stateSharePct, sanctionNo, ucSubmittedDate, remarks,
     } = body;
     await updateEntry({
       fundsUcId,
@@ -170,8 +165,8 @@ export function FundsUcPage(): JSX.Element {
         openingBalanceCr: openingBalanceCr ?? 0,
         grantReceivedCr: grantReceivedCr ?? 0,
         expenditureIncurredCr: expenditureIncurredCr ?? 0,
-        centralShareCr: centralShareCr ?? null,
-        stateShareCr: stateShareCr ?? null,
+        centralSharePct: centralSharePct ?? null,
+        stateSharePct: stateSharePct ?? null,
         sanctionNo: sanctionNo ?? null,
         ucSubmittedDate: ucSubmittedDate ?? null,
         remarks: remarks ?? null,
@@ -354,8 +349,8 @@ export function FundsUcPage(): JSX.Element {
                         options={FUNDING_SOURCES.map((v) => ({ value: v, label: v }))}
                       />
                     </th>
-                    <th className="px-3 py-2 text-right">Central Share</th>
-                    <th className="px-3 py-2 text-right">State Share</th>
+                    <th className="px-3 py-2 text-right">Central Share (%)</th>
+                    <th className="px-3 py-2 text-right">State Share (%)</th>
                     <th className="px-3 py-2 text-right">Opening</th>
                     <th className="px-3 py-2 text-right">Received</th>
                     <th className="px-3 py-2 text-left">
@@ -402,10 +397,10 @@ export function FundsUcPage(): JSX.Element {
                       <td className="px-3 py-2 text-[#374151]">{row.divisionName ?? '—'}</td>
                       <td className="px-3 py-2 text-[#374151]">{row.entry.fundingSource}</td>
                       <td className="px-3 py-2 text-right tabular-nums">
-                        {row.entry.centralShareCr === null ? '—' : formatCurrencyCr(row.entry.centralShareCr)}
+                        {formatPercent(row.entry.centralSharePct, 0)}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">
-                        {row.entry.stateShareCr === null ? '—' : formatCurrencyCr(row.entry.stateShareCr)}
+                        {formatPercent(row.entry.stateSharePct, 0)}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatCurrencyCr(row.entry.openingBalanceCr)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatCurrencyCr(row.entry.grantReceivedCr)}</td>

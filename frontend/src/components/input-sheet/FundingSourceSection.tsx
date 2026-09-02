@@ -46,8 +46,8 @@ export function FundingSourceSection({ projectId, entry, onEnsureProjectSaved, n
   const [expenditureIncurredCr, setExpenditureIncurredCr] = useState<number | null>(
     entry?.expenditureIncurredCr ?? null,
   );
-  const [centralShareCr, setCentralShareCr] = useState<number | null>(entry?.centralShareCr ?? null);
-  const [stateShareCr, setStateShareCr] = useState<number | null>(entry?.stateShareCr ?? null);
+  const [centralSharePct, setCentralSharePct] = useState<number | null>(entry?.centralSharePct ?? null);
+  const [stateSharePct, setStateSharePct] = useState<number | null>(entry?.stateSharePct ?? null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
@@ -58,8 +58,8 @@ export function FundingSourceSection({ projectId, entry, onEnsureProjectSaved, n
     setOpeningBalanceCr(entry?.openingBalanceCr ?? null);
     setGrantReceivedCr(entry?.grantReceivedCr ?? null);
     setExpenditureIncurredCr(entry?.expenditureIncurredCr ?? null);
-    setCentralShareCr(entry?.centralShareCr ?? null);
-    setStateShareCr(entry?.stateShareCr ?? null);
+    setCentralSharePct(entry?.centralSharePct ?? null);
+    setStateSharePct(entry?.stateSharePct ?? null);
   }, [entry]);
 
   const handleSave = async (): Promise<void> => {
@@ -72,15 +72,21 @@ export function FundingSourceSection({ projectId, entry, onEnsureProjectSaved, n
     if (
       (openingBalanceCr ?? 0) < 0 ||
       (grantReceivedCr ?? 0) < 0 ||
-      (expenditureIncurredCr ?? 0) < 0 ||
-      (centralShareCr ?? 0) < 0 ||
-      (stateShareCr ?? 0) < 0
+      (expenditureIncurredCr ?? 0) < 0
     ) {
       setError('Share amounts cannot be negative.');
       return;
     }
-    if (isCentralStateShare && (centralShareCr === null || stateShareCr === null)) {
-      setError('Enter both Central Share and State Share for "Central - State Share" funding.');
+    if (isCentralStateShare && (centralSharePct === null || stateSharePct === null)) {
+      setError('Enter both Central Share % and State Share % for "Central - State Share" funding.');
+      return;
+    }
+    if (isCentralStateShare && ((centralSharePct ?? 0) < 0 || (centralSharePct ?? 0) > 100 || (stateSharePct ?? 0) < 0 || (stateSharePct ?? 0) > 100)) {
+      setError('Central Share % and State Share % must each be between 0 and 100.');
+      return;
+    }
+    if (isCentralStateShare && (centralSharePct ?? 0) + (stateSharePct ?? 0) > 100) {
+      setError(`Central Share (${centralSharePct}%) + State Share (${stateSharePct}%) cannot exceed 100%.`);
       return;
     }
     const body = {
@@ -88,8 +94,8 @@ export function FundingSourceSection({ projectId, entry, onEnsureProjectSaved, n
       openingBalanceCr: openingBalanceCr ?? 0,
       grantReceivedCr: grantReceivedCr ?? 0,
       expenditureIncurredCr: expenditureIncurredCr ?? 0,
-      centralShareCr: isCentralStateShare ? centralShareCr : null,
-      stateShareCr: isCentralStateShare ? stateShareCr : null,
+      centralSharePct: isCentralStateShare ? centralSharePct : null,
+      stateSharePct: isCentralStateShare ? stateSharePct : null,
     };
     try {
       if (entry) {
@@ -164,20 +170,22 @@ export function FundingSourceSection({ projectId, entry, onEnsureProjectSaved, n
         {isCentralStateShare ? (
           <div className="mt-3 grid grid-cols-1 gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-3 md:grid-cols-2">
             <NumberField
-              label="Central Share (₹ Cr)"
-              value={centralShareCr}
-              onChange={setCentralShareCr}
+              label="Central Share (%)"
+              value={centralSharePct}
+              onChange={setCentralSharePct}
               min={0}
+              max={100}
               required
               hint="Split of the combined Central - State Share between the Centre…"
             />
             <NumberField
-              label="State Share (₹ Cr)"
-              value={stateShareCr}
-              onChange={setStateShareCr}
+              label="State Share (%)"
+              value={stateSharePct}
+              onChange={setStateSharePct}
               min={0}
+              max={100}
               required
-              hint="…and the State."
+              hint="…and the State. The two must not add up to more than 100%."
             />
           </div>
         ) : null}

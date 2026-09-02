@@ -738,9 +738,10 @@ export interface FundsUcEntry {
   openingBalanceCr: number;
   grantReceivedCr: number;
   expenditureIncurredCr: number;
-  /** Only meaningful when fundingSource is 'Central - State Share'. */
-  centralShareCr: number | null;
-  stateShareCr: number | null;
+  /** Only meaningful when fundingSource is 'Central - State Share' — a
+   *  percentage (0-100), not a ₹ Cr amount. */
+  centralSharePct: number | null;
+  stateSharePct: number | null;
   sanctionNo: string | null;
   ucSubmittedDate: string | null;
   remarks: string | null;
@@ -754,8 +755,8 @@ export interface FundsUcCreatePayload {
   openingBalanceCr?: number;
   grantReceivedCr?: number;
   expenditureIncurredCr?: number;
-  centralShareCr?: number | null;
-  stateShareCr?: number | null;
+  centralSharePct?: number | null;
+  stateSharePct?: number | null;
   sanctionNo?: string | null;
   ucSubmittedDate?: string | null;
   remarks?: string | null;

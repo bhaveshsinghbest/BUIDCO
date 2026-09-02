@@ -142,8 +142,8 @@ const FUNDING_FIELD_DEFS: FundingFieldDef[] = [
   { header: 'Opening Balance (Rs. Cr.)', key: 'openingBalanceCr', kind: 'number' },
   { header: 'Grant Received (Rs. Cr.)', key: 'grantReceivedCr', kind: 'number' },
   { header: 'Expenditure Incurred (Rs. Cr.)', key: 'expenditureIncurredCr', kind: 'number' },
-  { header: 'Central Share (Rs. Cr.)', key: 'centralShareCr', kind: 'number' },
-  { header: 'State Share (Rs. Cr.)', key: 'stateShareCr', kind: 'number' },
+  { header: 'Central Share (%)', key: 'centralSharePct', kind: 'number' },
+  { header: 'State Share (%)', key: 'stateSharePct', kind: 'number' },
 ];
 
 function normalizeHeader(s: string): string {
@@ -416,7 +416,7 @@ function parseWorkbook(
           return col ? row.getCell(col).value : undefined;
         };
         const money: Record<string, number | undefined> = {};
-        for (const key of ['openingBalanceCr', 'grantReceivedCr', 'expenditureIncurredCr', 'centralShareCr', 'stateShareCr']) {
+        for (const key of ['openingBalanceCr', 'grantReceivedCr', 'expenditureIncurredCr', 'centralSharePct', 'stateSharePct']) {
           const n = cellNumber(getFundingRaw(key));
           if (n === null) {
             const def = FUNDING_FIELD_DEFS.find((f) => f.key === key);
@@ -426,16 +426,24 @@ function parseWorkbook(
           }
         }
         const isCentralStateShare = fundingSource === 'Central - State Share';
-        if (isCentralStateShare && (money.centralShareCr === undefined || money.stateShareCr === undefined)) {
-          messages.push('"Central Share (Rs. Cr.)" and "State Share (Rs. Cr.)" are both required when Funding Source is "Central - State Share".');
+        if (isCentralStateShare && (money.centralSharePct === undefined || money.stateSharePct === undefined)) {
+          messages.push('"Central Share (%)" and "State Share (%)" are both required when Funding Source is "Central - State Share".');
+        } else if (isCentralStateShare) {
+          const c = money.centralSharePct ?? 0;
+          const s = money.stateSharePct ?? 0;
+          if (c < 0 || c > 100 || s < 0 || s > 100) {
+            messages.push('"Central Share (%)" and "State Share (%)" must each be between 0 and 100.');
+          } else if (c + s > 100) {
+            messages.push(`"Central Share (%)" (${c}) + "State Share (%)" (${s}) cannot exceed 100.`);
+          }
         }
         fundingPayload = {
           fundingSource: fundingSource as FundingSource,
           openingBalanceCr: money.openingBalanceCr ?? 0,
           grantReceivedCr: money.grantReceivedCr ?? 0,
           expenditureIncurredCr: money.expenditureIncurredCr ?? 0,
-          centralShareCr: isCentralStateShare ? money.centralShareCr ?? null : null,
-          stateShareCr: isCentralStateShare ? money.stateShareCr ?? null : null,
+          centralSharePct: isCentralStateShare ? money.centralSharePct ?? null : null,
+          stateSharePct: isCentralStateShare ? money.stateSharePct ?? null : null,
         };
       }
     }

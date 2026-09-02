@@ -5,6 +5,7 @@ import { useGetProjectQuery } from '../../app/api/projectsApi';
 import { useListCosEotForProjectQuery } from '../../app/api/cosEotApi';
 import { useListMgmtActionsForProjectQuery } from '../../app/api/mgmtActionsApi';
 import { useListMilestonesQuery } from '../../app/api/milestonesApi';
+import { useGetFundsUcByProjectQuery } from '../../app/api/fundsUcApi';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import { OmAlertCell } from './OmAlertCell';
@@ -20,6 +21,7 @@ import {
   daysBetween,
 } from '../../lib/formatters';
 import { displayNitDate, displayNitNumber } from '../../features/tender/tenderWorkflow';
+import { fundsUcStatusOf } from '../../lib/fundsUc';
 
 // ── Field key type ────────────────────────────────────────────────────────────
 type FieldKey =
@@ -47,6 +49,10 @@ type FieldKey =
   // O&M card
   | 'omStartDate' | 'omPeriodMonths' | 'omEndDate' | 'omAgency'
   | 'omStatusOverride' | 'omRemarks'
+  // Funding Source & UC card
+  | 'fundsUcSource' | 'fundsUcCentralShare' | 'fundsUcStateShare'
+  | 'fundsUcOpeningBalance' | 'fundsUcGrantReceived' | 'fundsUcExpenditure'
+  | 'fundsUcClosingBalance' | 'fundsUcSanctionNo' | 'fundsUcSubmittedDate' | 'fundsUcStatus'
   // Remarks card
   | 'remark' | 'mainWork'
   // Resources
@@ -160,6 +166,21 @@ const FIELD_GROUPS: GroupDef[] = [
     ],
   },
   {
+    group: 'Funding Source & UC Card',
+    fields: [
+      { key: 'fundsUcSource',          label: 'Funding Source' },
+      { key: 'fundsUcCentralShare',    label: 'Central Share' },
+      { key: 'fundsUcStateShare',      label: 'State Share' },
+      { key: 'fundsUcOpeningBalance',  label: 'Opening Balance' },
+      { key: 'fundsUcGrantReceived',   label: 'Grant Received' },
+      { key: 'fundsUcExpenditure',     label: 'Expenditure Incurred' },
+      { key: 'fundsUcClosingBalance',  label: 'Closing Balance' },
+      { key: 'fundsUcSanctionNo',      label: 'Sanction No.' },
+      { key: 'fundsUcSubmittedDate',   label: 'UC Submitted Date' },
+      { key: 'fundsUcStatus',          label: 'UC Status' },
+    ],
+  },
+  {
     group: 'Remarks & Gaps Card',
     fields: [
       { key: 'remark',   label: 'Outstanding Remark' },
@@ -215,6 +236,7 @@ export function ProjectProfileModal({ projectId, onClose }: Props): JSX.Element 
   const cosEot       = useListCosEotForProjectQuery(projectId ?? '', { skip: !enabled });
   const mgmt         = useListMgmtActionsForProjectQuery(projectId ?? '', { skip: !enabled });
   const milestones   = useListMilestonesQuery(projectId ?? '', { skip: !enabled });
+  const fundsUc      = useGetFundsUcByProjectQuery(projectId ?? '', { skip: !enabled });
   const lookups      = useGetLookupsQuery(undefined, { skip: !enabled });
 
   const [showSettings, setShowSettings] = useState(false);
@@ -402,6 +424,31 @@ export function ProjectProfileModal({ projectId, onClose }: Props): JSX.Element 
     { label: 'Status Override', value: project?.omStatusOverride,        fk: 'omStatusOverride' },
   ];
 
+  const fundsUcEntry = fundsUc.data ?? null;
+  const isCentralStateShare = fundsUcEntry?.fundingSource === 'Central - State Share';
+  const fundsUcFields: GridField[] = fundsUcEntry
+    ? [
+        { label: 'Funding Source', value: fundsUcEntry.fundingSource, fk: 'fundsUcSource' },
+        ...(isCentralStateShare
+          ? ([
+              { label: 'Central Share', value: formatPercent(fundsUcEntry.centralSharePct, 0), fk: 'fundsUcCentralShare' },
+              { label: 'State Share', value: formatPercent(fundsUcEntry.stateSharePct, 0), fk: 'fundsUcStateShare' },
+            ] as GridField[])
+          : []),
+        { label: 'Opening Balance', value: formatCurrencyCr(fundsUcEntry.openingBalanceCr), fk: 'fundsUcOpeningBalance' },
+        { label: 'Grant Received', value: formatCurrencyCr(fundsUcEntry.grantReceivedCr), fk: 'fundsUcGrantReceived' },
+        { label: 'Expenditure Incurred', value: formatCurrencyCr(fundsUcEntry.expenditureIncurredCr), fk: 'fundsUcExpenditure' },
+        {
+          label: 'Closing Balance',
+          value: formatCurrencyCr(fundsUcEntry.openingBalanceCr + fundsUcEntry.grantReceivedCr - fundsUcEntry.expenditureIncurredCr),
+          fk: 'fundsUcClosingBalance',
+        },
+        { label: 'Sanction No.', value: fundsUcEntry.sanctionNo, fk: 'fundsUcSanctionNo' },
+        { label: 'UC Submitted Date', value: formatDate(fundsUcEntry.ucSubmittedDate), fk: 'fundsUcSubmittedDate' },
+        { label: 'UC Status', value: fundsUcStatusOf(fundsUcEntry), fk: 'fundsUcStatus' },
+      ]
+    : [];
+
   const visible = (fields: GridField[]) => fields.filter((f) => isVisible(f.fk));
 
   const visOv       = visible(overviewFields);
@@ -409,14 +456,17 @@ export function ProjectProfileModal({ projectId, onClose }: Props): JSX.Element 
   const visContract = visible(contractFields);
   const visPbg      = visible(pbgFields);
   const visOm       = visible(omFields);
+  const visFundsUc  = visible(fundsUcFields);
 
   const showRemarkCard =
     isVisible('remark') || isVisible('mainWork') || isVisible('projectBrief');
 
+  const showFundsUcCard = fundsUc.isLoading || visFundsUc.length > 0 || (!fundsUcEntry && isVisible('fundsUcSource'));
+
   const showDetailSection =
     visOv.length > 0 || visSched.length > 0 ||
     visContract.length > 0 || visPbg.length > 0 ||
-    visOm.length > 0 || showRemarkCard;
+    visOm.length > 0 || showFundsUcCard || showRemarkCard;
 
   const showStripSection =
     isVisible('sponsoringDept') || isVisible('implementingAgency') || isVisible('sanctionDate');
@@ -755,6 +805,20 @@ export function ProjectProfileModal({ projectId, onClose }: Props): JSX.Element 
                       <div className="mt-2">
                         <PbgAlertCell pbgExpiryDate={project.pbgExpiryDate} />
                       </div>
+                    </FieldCard>
+                  ) : null}
+
+                  {showFundsUcCard ? (
+                    <FieldCard title="Funding Source & UC">
+                      {fundsUc.isLoading ? (
+                        <Skeleton className="h-16 w-full" />
+                      ) : visFundsUc.length > 0 ? (
+                        <FieldGrid fields={visFundsUc} />
+                      ) : (
+                        <p className="text-[12.5px] text-[#6B7280]">
+                          No Funding Source recorded yet — add it from the Input Sheet.
+                        </p>
+                      )}
                     </FieldCard>
                   ) : null}
 

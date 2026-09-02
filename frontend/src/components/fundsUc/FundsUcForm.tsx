@@ -24,8 +24,8 @@ export function FundsUcForm({ initial, onCancel, onSubmit, busy }: Props): JSX.E
   const [openingBalanceCr, setOpeningBalanceCr] = useState(String(initial?.openingBalanceCr ?? 0));
   const [grantReceivedCr, setGrantReceivedCr] = useState(String(initial?.grantReceivedCr ?? 0));
   const [expenditureIncurredCr, setExpenditureIncurredCr] = useState(String(initial?.expenditureIncurredCr ?? 0));
-  const [centralShareCr, setCentralShareCr] = useState(initial?.centralShareCr != null ? String(initial.centralShareCr) : '');
-  const [stateShareCr, setStateShareCr] = useState(initial?.stateShareCr != null ? String(initial.stateShareCr) : '');
+  const [centralSharePct, setCentralSharePct] = useState(initial?.centralSharePct != null ? String(initial.centralSharePct) : '');
+  const [stateSharePct, setStateSharePct] = useState(initial?.stateSharePct != null ? String(initial.stateSharePct) : '');
   const [sanctionNo, setSanctionNo] = useState(initial?.sanctionNo ?? '');
   const [ucSubmittedDate, setUcSubmittedDate] = useState(initial?.ucSubmittedDate ?? '');
   const [remarks, setRemarks] = useState(initial?.remarks ?? '');
@@ -40,9 +40,21 @@ export function FundsUcForm({ initial, onCancel, onSubmit, busy }: Props): JSX.E
       setError('Project is required.');
       return;
     }
-    if (isCentralStateShare && (centralShareCr.trim() === '' || stateShareCr.trim() === '')) {
-      setError('Enter both Central Share and State Share for "Central - State Share" funding.');
+    if (isCentralStateShare && (centralSharePct.trim() === '' || stateSharePct.trim() === '')) {
+      setError('Enter both Central Share % and State Share % for "Central - State Share" funding.');
       return;
+    }
+    if (isCentralStateShare) {
+      const c = Number(centralSharePct) || 0;
+      const s = Number(stateSharePct) || 0;
+      if (c < 0 || c > 100 || s < 0 || s > 100) {
+        setError('Central Share % and State Share % must each be between 0 and 100.');
+        return;
+      }
+      if (c + s > 100) {
+        setError(`Central Share (${c}%) + State Share (${s}%) cannot exceed 100%.`);
+        return;
+      }
     }
     const body: FundsUcCreatePayload = {
       projectId: initial ? initial.projectId : projectId,
@@ -50,8 +62,8 @@ export function FundsUcForm({ initial, onCancel, onSubmit, busy }: Props): JSX.E
       openingBalanceCr: Number(openingBalanceCr) || 0,
       grantReceivedCr: Number(grantReceivedCr) || 0,
       expenditureIncurredCr: Number(expenditureIncurredCr) || 0,
-      centralShareCr: isCentralStateShare ? Number(centralShareCr) || 0 : null,
-      stateShareCr: isCentralStateShare ? Number(stateShareCr) || 0 : null,
+      centralSharePct: isCentralStateShare ? Number(centralSharePct) || 0 : null,
+      stateSharePct: isCentralStateShare ? Number(stateSharePct) || 0 : null,
       sanctionNo: sanctionNo.trim() || null,
       ucSubmittedDate: ucSubmittedDate || null,
       remarks: remarks.trim() || null,
@@ -132,22 +144,25 @@ export function FundsUcForm({ initial, onCancel, onSubmit, busy }: Props): JSX.E
       {isCentralStateShare ? (
         <div className="grid grid-cols-1 gap-3 rounded-lg border border-[#E5E7EB] bg-[#F9FAFB] p-3 md:grid-cols-2">
           <FormField
-            label="Central Share (₹ Cr)"
+            label="Central Share (%)"
             type="number"
             step="0.01"
             min={0}
+            max={100}
             required
-            value={centralShareCr}
-            onChange={setCentralShareCr}
+            value={centralSharePct}
+            onChange={setCentralSharePct}
           />
           <FormField
-            label="State Share (₹ Cr)"
+            label="State Share (%)"
             type="number"
             step="0.01"
             min={0}
+            max={100}
             required
-            value={stateShareCr}
-            onChange={setStateShareCr}
+            value={stateSharePct}
+            onChange={setStateSharePct}
+            hint="Central % + State % must not exceed 100%."
           />
         </div>
       ) : null}
