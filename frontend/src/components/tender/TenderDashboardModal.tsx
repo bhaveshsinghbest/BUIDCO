@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { NavLink } from 'react-router-dom';
 import { useGetLookupsQuery } from '../../app/api/lookupsApi';
 import {
   useGetProjectQuery,
@@ -23,6 +22,7 @@ import { cn } from '../../lib/utils';
 import { daysBetween, formatDate } from '../../lib/formatters';
 import { Button } from '../ui/button';
 import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../ui/ColumnFilter';
+import { ProjectProfileModal } from '../projects/ProjectProfileModal';
 import { RemarksButton, RemarksDialog } from '../projects/RemarksDialog';
 import { Skeleton } from '../ui/skeleton';
 
@@ -45,6 +45,10 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
   const [stagesActive, setStagesActive] = useState<TenderSubStage>(FIRST_TENDER_SUB_STAGE);
   const [flash, setFlash] = useState<{ text: string; kind: 'ok' | 'err' } | null>(null);
   const [remarksProject, setRemarksProject] = useState<ProjectListItem | null>(null);
+  // Task 4 (bhaveshTask.md) — clicking a project opens its details inline,
+  // stacked on top of this dashboard, instead of navigating to /projects/:id
+  // and closing the dashboard behind it.
+  const [openProjectId, setOpenProjectId] = useState<string | null>(null);
 
   const lookupsQuery = useGetLookupsQuery(undefined, { skip: !open });
   // Backend listProjectsQuery caps `limit` at 100 (max page size). Anything
@@ -72,6 +76,7 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
       setTab('dashboard');
       setFlash(null);
       setRemarksProject(null);
+      setOpenProjectId(null);
     }
   }, [open]);
 
@@ -214,7 +219,7 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
       <nav
         role="tablist"
         aria-label="Tender Dashboard tabs"
-        className="flex shrink-0 flex-wrap gap-0.5 border-b-2 border-[#E5E7EB] px-2 pt-2 sm:px-4"
+        className="flex shrink-0 flex-wrap gap-1 border-b-2 border-[#E5E7EB] px-2 pt-2.5 sm:px-4"
       >
         {TABS.map((t) => (
           <button
@@ -224,10 +229,10 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
             aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
             className={cn(
-              '-mb-0.5 whitespace-nowrap border-b-2 px-4 py-2 text-[12px] font-semibold transition-colors',
+              '-mb-0.5 whitespace-nowrap rounded-t-md border-b-[3px] px-6 py-3 text-[14px] font-bold transition-colors sm:px-7',
               tab === t.key
                 ? 'border-[#1E3A5F] text-[#1E3A5F]'
-                : 'border-transparent text-[#6B7280] hover:text-[#374151]',
+                : 'border-transparent text-[#6B7280] hover:bg-[#F9FAFB] hover:text-[#374151]',
             )}
           >
             {t.label}
@@ -266,7 +271,7 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
             drillProjects={drillProjects}
             lookups={lookupsQuery.data}
             onOpenRemarks={setRemarksProject}
-            onNavigateAway={onClose}
+            onOpenProject={setOpenProjectId}
           />
         ) : (
           <StagesTab
@@ -285,6 +290,7 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
             onTransferPrev={() => void runTransfer('prev')}
             onTransferNext={() => void runTransfer('next')}
             lookups={lookupsQuery.data}
+            onOpenProject={setOpenProjectId}
           />
         )}
       </div>
@@ -297,6 +303,10 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
           onClose={() => setRemarksProject(null)}
         />
       ) : null}
+
+      {/* Task 4 (bhaveshTask.md) — stacked on top of this dashboard rather
+          than navigating away, so closing it returns exactly here. */}
+      <ProjectProfileModal projectId={openProjectId} onClose={() => setOpenProjectId(null)} />
     </div>
   );
 }
@@ -393,7 +403,7 @@ function sectorNameOf(project: ProjectListItem, lookups: Lookups | undefined): s
 }
 
 function DashboardTab({
-  byStage, selectedStage, onSelect, drillProjects, lookups, onOpenRemarks, onNavigateAway,
+  byStage, selectedStage, onSelect, drillProjects, lookups, onOpenRemarks, onOpenProject,
 }: {
   byStage: Map<TenderSubStage, ProjectListItem[]>;
   selectedStage: TenderSubStage | null;
@@ -401,7 +411,7 @@ function DashboardTab({
   drillProjects: ProjectListItem[];
   lookups: Lookups | undefined;
   onOpenRemarks: (project: ProjectListItem) => void;
-  onNavigateAway: () => void;
+  onOpenProject: (projectId: string) => void;
 }): JSX.Element {
   // Task: Table Column Filter for the stage drill-in table — same
   // independent-per-column pattern as StagesTab below.
@@ -722,7 +732,7 @@ function DashboardTab({
                       lookups={lookups}
                       subStage={selectedStage}
                       onOpenRemarks={onOpenRemarks}
-                      onNavigateAway={onNavigateAway}
+                      onOpenProject={onOpenProject}
                     />
                   ))}
                 </tbody>
@@ -744,13 +754,13 @@ function DashboardTab({
  * endpoint) — pull them per row via cached RTK Query fetches.
  */
 function ProjectDrillRow({
-  project, lookups, subStage, onOpenRemarks, onNavigateAway,
+  project, lookups, subStage, onOpenRemarks, onOpenProject,
 }: {
   project: ProjectListItem;
   lookups: Lookups | undefined;
   subStage: TenderSubStage;
   onOpenRemarks: (project: ProjectListItem) => void;
-  onNavigateAway: () => void;
+  onOpenProject: (projectId: string) => void;
 }): JSX.Element {
   const detail = useGetProjectQuery(project.projectId);
   const division = project.divisionId
@@ -760,14 +770,14 @@ function ProjectDrillRow({
   return (
     <tr className="border-b border-[#F3F4F6] hover:bg-[#F0F7FF]">
       <td className="px-3 py-2 font-semibold">
-        <NavLink
-          to={`/projects/${project.projectId}`}
-          onClick={onNavigateAway}
-          className="text-[#1D4ED8] hover:underline"
+        <button
+          type="button"
+          onClick={() => onOpenProject(project.projectId)}
+          className="text-left text-[#1D4ED8] hover:underline"
           title="Open project details"
         >
           {project.projectName}
-        </NavLink>
+        </button>
       </td>
       <td className="px-3 py-2 text-[#374151]">{division}</td>
       <td className="px-3 py-2 text-[#374151]">
@@ -822,7 +832,7 @@ function StagesTab({
   stagesActive, onStageChange, byStage, projects, selectedIds,
   onToggleSelect, onSelectAll, onClearSelection,
   canPrev, canNext, canTransfer, busy, onTransferPrev, onTransferNext,
-  lookups,
+  lookups, onOpenProject,
 }: {
   stagesActive: TenderSubStage;
   onStageChange: (s: TenderSubStage) => void;
@@ -839,6 +849,7 @@ function StagesTab({
   onTransferPrev: () => void;
   onTransferNext: () => void;
   lookups: Lookups | undefined;
+  onOpenProject: (projectId: string) => void;
 }): JSX.Element {
   const selectionCount = selectedIds.size;
 
@@ -1045,6 +1056,7 @@ function StagesTab({
                       disableCheckbox={!canTransfer || busy}
                       isNitPublished={stagesActive === 'NIT Published'}
                       canEditNit={canTransfer}
+                      onOpenProject={onOpenProject}
                     />
                   ))
                 )}
@@ -1069,7 +1081,7 @@ function StagesTab({
 
 function StageProjectRow({
   project, lookups, checked, onToggle, disableCheckbox,
-  isNitPublished, canEditNit,
+  isNitPublished, canEditNit, onOpenProject,
 }: {
   project: ProjectListItem;
   lookups: Lookups | undefined;
@@ -1078,6 +1090,7 @@ function StageProjectRow({
   disableCheckbox: boolean;
   isNitPublished: boolean;
   canEditNit: boolean;
+  onOpenProject: (projectId: string) => void;
 }): JSX.Element {
   const division = project.divisionId
     ? lookups?.divisions.find((d) => d.divisionId === project.divisionId)?.divisionName ?? '—'
@@ -1130,8 +1143,15 @@ function StageProjectRow({
           disabled={disableCheckbox}
         />
       </td>
-      <td className="px-3 py-2 font-semibold text-[#1D4ED8]">
-        {project.projectName}
+      <td className="px-3 py-2 font-semibold">
+        <button
+          type="button"
+          onClick={() => onOpenProject(project.projectId)}
+          className="text-left text-[#1D4ED8] hover:underline"
+          title="Open project details"
+        >
+          {project.projectName}
+        </button>
       </td>
       <td className="px-3 py-2 text-[#374151]">{division}</td>
       <td className="px-3 py-2 text-[#374151]">{project.contractor ?? '—'}</td>

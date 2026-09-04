@@ -26,6 +26,9 @@
     "db:seed-dummy-premonsoon": "tsx src/db/seedDummyPreMonsoon.ts",
     "db:seed-dummy-funds-uc": "tsx src/db/seedDummyFundsUc.ts",
     "db:seed-dummy-pds": "tsx src/db/seedDummyPDs.ts",
+    "db:seed-dummy-extras": "tsx src/db/seedDummyPresentationExtras.ts",
+    "db:seed-demo-roles": "tsx src/db/seedDemoRoles.ts",
+    "db:seed-dummy-extras-2": "tsx src/db/seedDummyPresentationExtras2.ts",
     "db:studio": "drizzle-kit studio",
     "db:backfill-divisions": "tsx src/scripts/backfillDivisions.ts",
     "gen:input-template": "tsx src/scripts/generateInputSheetTemplate.ts"
