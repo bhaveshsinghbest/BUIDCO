@@ -179,12 +179,27 @@ type RefreshTokenRow = typeof refreshToken.$inferSelect;
  * to whatever the chain has already rotated to, never by accepting a token
  * whose secret doesn't check out — keeps the "reuse = revoke everything"
  * protection for genuine theft while not punishing this benign race.
+ *
+ * This only covers a token that was ALREADY revoked by the time this
+ * request looked it up (a genuine straggler arriving after the fact). The
+ * more common case — several requests reading the same still-live cookie
+ * at once, before any of them has rotated it — is handled separately by
+ * claimAndRotate()'s atomic compare-and-swap below, which doesn't depend
+ * on timing at all.
  */
-const REUSE_GRACE_MS = 5_000;
+const REUSE_GRACE_MS = 10_000;
 
 async function findLiveDescendantWithinGrace(row: RefreshTokenRow): Promise<RefreshTokenRow | null> {
   let current = row;
-  for (let hops = 0; hops < 5; hops++) {
+  // The real safety bound is the per-hop time check below (every link in the
+  // chain must have rotated within the last REUSE_GRACE_MS) — this hop cap
+  // is just a generous backstop against a pathological runaway chain, not
+  // the primary defense. A tight cap here re-creates the original bug: a
+  // burst of more than a handful of near-simultaneous reloads (e.g. rapidly
+  // resizing the viewport, or several tabs reloading together) can
+  // legitimately produce a chain longer than a small fixed number of hops,
+  // all still well within the grace window.
+  for (let hops = 0; hops < 50; hops++) {
     if (!current.revokedAt || Date.now() - current.revokedAt.getTime() > REUSE_GRACE_MS) {
       return null;
     }
@@ -201,41 +216,11 @@ async function findLiveDescendantWithinGrace(row: RefreshTokenRow): Promise<Refr
   return null;
 }
 
-async function finishRefresh(row: RefreshTokenRow, req: Request): Promise<RefreshResult> {
-  if (row.expiresAt.getTime() <= Date.now()) {
-    throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token expired');
-  }
-
-  const [userRow] = await db
-    .select()
-    .from(appUser)
-    .where(eq(appUser.userId, row.userId))
-    .limit(1);
-
-  if (!userRow || !userRow.isActive) {
-    throw new HttpError(401, 'USER_INACTIVE', 'User account is inactive');
-  }
-
-  // PD sessions carry over the selected division so refreshes don't drop it.
-  const preservedDivisionId = row.selectedDivisionId ?? null;
-  const nextRefresh = await signRefreshToken(userRow.userId);
-
-  await db.transaction(async (tx) => {
-    await tx.insert(refreshToken).values({
-      tokenId: nextRefresh.tokenId,
-      userId: userRow.userId,
-      tokenHash: nextRefresh.tokenHash,
-      expiresAt: nextRefresh.expiresAt,
-      userAgent: req.get('user-agent') ?? null,
-      ipAddress: req.ip ?? null,
-      selectedDivisionId: preservedDivisionId,
-    });
-    await tx
-      .update(refreshToken)
-      .set({ revokedAt: new Date(), replacedBy: nextRefresh.tokenId })
-      .where(eq(refreshToken.tokenId, row.tokenId));
-  });
-
+function buildRefreshResult(
+  userRow: typeof appUser.$inferSelect,
+  preservedDivisionId: number | null,
+  nextRefresh: SignedRefreshToken,
+): RefreshResult {
   const user: AuthenticatedUser = {
     userId: userRow.userId,
     username: userRow.username,
@@ -256,6 +241,104 @@ async function finishRefresh(row: RefreshTokenRow, req: Request): Promise<Refres
   });
 
   return { user, access, refresh: nextRefresh };
+}
+
+/**
+ * Rotates `current` into a freshly-minted token, tolerating concurrent
+ * callers that all started from the same still-live row (several page
+ * loads reading one shared cookie and firing their silent-refresh at the
+ * same instant, before any of them has received a new Set-Cookie). Naively
+ * rotating unconditionally lets two such requests both "win": each reads
+ * the row as live, each revokes it and inserts its own child, and the
+ * plain UPDATE's last-write-wins leaves one child orphaned — unreachable
+ * via any replacedBy pointer, and forever indistinguishable from genuine
+ * theft to a later request that lands on it.
+ *
+ * The fix is a compare-and-swap: only revoke `current` if it is STILL
+ * unrevoked at the moment of the UPDATE. Whoever loses the race simply
+ * follows the winner's replacedBy pointer and retries the claim one hop
+ * further down the chain — no orphan is ever created, and correctness
+ * doesn't depend on how much wall-clock time the race spans.
+ */
+async function claimAndRotate(
+  startRow: RefreshTokenRow,
+  userRow: typeof appUser.$inferSelect,
+  preservedDivisionId: number | null,
+  req: Request,
+): Promise<RefreshResult> {
+  let current = startRow;
+  for (let hops = 0; hops < 50; hops++) {
+    const nextRefresh = await signRefreshToken(userRow.userId);
+    const tokenId = current.tokenId;
+    const claimed = await db.transaction(async (tx) => {
+      // The child row must exist before the parent's replacedBy FK can
+      // point to it, so it's inserted unconditionally first. If the
+      // conditional claim below then loses the race, this insert is left
+      // in place as a harmless orphan — its raw secret was never handed to
+      // any client, so it can never be presented — rather than leaving the
+      // parent's replacedBy pointing at a row that doesn't exist.
+      await tx.insert(refreshToken).values({
+        tokenId: nextRefresh.tokenId,
+        userId: userRow.userId,
+        tokenHash: nextRefresh.tokenHash,
+        expiresAt: nextRefresh.expiresAt,
+        userAgent: req.get('user-agent') ?? null,
+        ipAddress: req.ip ?? null,
+        selectedDivisionId: preservedDivisionId,
+      });
+      const updated = await tx
+        .update(refreshToken)
+        .set({ revokedAt: new Date(), replacedBy: nextRefresh.tokenId })
+        .where(and(eq(refreshToken.tokenId, tokenId), isNull(refreshToken.revokedAt)))
+        .returning({ tokenId: refreshToken.tokenId });
+      return updated.length > 0;
+    });
+
+    if (claimed) {
+      return buildRefreshResult(userRow, preservedDivisionId, nextRefresh);
+    }
+
+    // Lost the race — someone else rotated `current` a moment earlier.
+    // Follow their pointer and try to claim further down the chain.
+    const [refetched] = await db
+      .select()
+      .from(refreshToken)
+      .where(eq(refreshToken.tokenId, tokenId))
+      .limit(1);
+    if (!refetched?.replacedBy) {
+      throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token invalid');
+    }
+    const [nextRow] = await db
+      .select()
+      .from(refreshToken)
+      .where(eq(refreshToken.tokenId, refetched.replacedBy))
+      .limit(1);
+    if (!nextRow) {
+      throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token invalid');
+    }
+    current = nextRow;
+  }
+  throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token invalid');
+}
+
+async function finishRefresh(row: RefreshTokenRow, req: Request): Promise<RefreshResult> {
+  if (row.expiresAt.getTime() <= Date.now()) {
+    throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token expired');
+  }
+
+  const [userRow] = await db
+    .select()
+    .from(appUser)
+    .where(eq(appUser.userId, row.userId))
+    .limit(1);
+
+  if (!userRow || !userRow.isActive) {
+    throw new HttpError(401, 'USER_INACTIVE', 'User account is inactive');
+  }
+
+  // PD sessions carry over the selected division so refreshes don't drop it.
+  const preservedDivisionId = row.selectedDivisionId ?? null;
+  return claimAndRotate(row, userRow, preservedDivisionId, req);
 }
 
 export async function refresh(cookieValue: string, req: Request): Promise<RefreshResult> {
