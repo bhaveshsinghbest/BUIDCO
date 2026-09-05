@@ -86,7 +86,7 @@ export function DrillTable({
     ...(status ? { status } : {}),
   };
   const { data, isLoading } = useListProjectsQuery(args);
-  const items = data?.items ?? [];
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
   const [modalProjectId, setModalProjectId] = useState<string | null>(null);
 
   // Task 2/3/4 — Table Column Filter: each column narrows independently,

@@ -321,7 +321,7 @@ export function MdSchemeSummaryModal({ open, onClose }: Props): JSX.Element | nu
   }, [openPicker]);
 
   // ── Derived state ──
-  const projects = projectsQuery.data?.items ?? [];
+  const projects = useMemo(() => projectsQuery.data?.items ?? [], [projectsQuery.data?.items]);
   const activeProject = activeProjectId
     ? projects.find((p) => p.projectId === activeProjectId) ?? null
     : null;

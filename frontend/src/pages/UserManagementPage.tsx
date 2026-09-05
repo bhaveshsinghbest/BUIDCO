@@ -98,7 +98,7 @@ export function UserManagementPage(): JSX.Element {
       fallback={
         <div className="rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] p-4 text-sm">
           <p className="font-semibold text-[#B91C1C]">
-            You don't have permission to manage users.
+            You don&rsquo;t have permission to manage users.
           </p>
           <NavLink to="/" className="mt-2 inline-block text-[#1D4ED8] hover:underline">
             ← Back to overview

@@ -84,7 +84,7 @@ export function OmDetailsSection({ draft, setField, num = '06' }: Props): JSX.El
 
         {!isCompleted ? (
           <div className="mb-4 rounded border border-[#BFDBFE] bg-[#EFF6FF] px-3 py-2 text-[12px] text-[#1D4ED8]">
-            💡 This project's status isn't <strong>Completed</strong> yet. You can pre-fill O&M
+            💡 This project&rsquo;s status isn&rsquo;t <strong>Completed</strong> yet. You can pre-fill O&M
             details now; the O&M tracker and alerts pick them up once status is set to Completed
             in Section 02.
           </div>

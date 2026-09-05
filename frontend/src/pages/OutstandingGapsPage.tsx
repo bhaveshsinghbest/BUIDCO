@@ -87,7 +87,7 @@ export function OutstandingGapsPage(): JSX.Element {
       <header>
         <h1 className="text-lg font-bold text-[#111827]">Outstanding Gaps</h1>
         <p className="text-[12.5px] text-[#6B7280]">
-          Projects flagged with an outstanding gap (Input Sheet → Section 07 → "Yes — Gap Exists").
+          Projects flagged with an outstanding gap (Input Sheet → Section 07 → &ldquo;Yes — Gap Exists&rdquo;).
         </p>
       </header>
 

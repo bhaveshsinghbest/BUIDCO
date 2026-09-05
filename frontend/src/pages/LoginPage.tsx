@@ -118,7 +118,7 @@ export function LoginPage(): JSX.Element {
                   <div className="rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-3 text-[12px] text-[#1E3A5F]">
                     <p className="font-semibold">Signed in as {username}</p>
                     <p className="mt-0.5 text-[11.5px] text-[#374151]">
-                      You're a Project Director. Choose which division you're
+                      You&rsquo;re a Project Director. Choose which division you&rsquo;re
                       working in for this session.
                     </p>
                   </div>

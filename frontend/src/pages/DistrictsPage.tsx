@@ -24,7 +24,7 @@ export function DistrictsPage(): JSX.Element {
   const [sortKey, setSortKey] = useState<SortKey>('total');
   const [search, setSearch] = useState('');
 
-  const items = summary.data?.items ?? [];
+  const items = useMemo(() => summary.data?.items ?? [], [summary.data?.items]);
 
   const totals = useMemo(
     () => ({

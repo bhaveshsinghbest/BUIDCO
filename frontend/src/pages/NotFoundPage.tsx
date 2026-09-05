@@ -10,7 +10,7 @@ export function NotFoundPage(): JSX.Element {
         </CardHeader>
         <CardContent className="space-y-3">
           <p className="text-sm text-[#6B7280]">
-            The page you're looking for doesn't exist in this dashboard.
+            The page you&rsquo;re looking for doesn&rsquo;t exist in this dashboard.
           </p>
           <Link
             to="/"

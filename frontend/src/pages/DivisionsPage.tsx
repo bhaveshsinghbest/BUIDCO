@@ -46,7 +46,7 @@ export function DivisionsPage(): JSX.Element {
   const [search, setSearch] = useState('');
   const [activeMetric, setActiveMetric] = useState<MetricKey | null>(null);
 
-  const items = summary.data?.items ?? [];
+  const items = useMemo(() => summary.data?.items ?? [], [summary.data?.items]);
 
   const totals = useMemo(
     () => ({

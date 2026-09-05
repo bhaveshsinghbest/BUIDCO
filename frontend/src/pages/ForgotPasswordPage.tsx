@@ -284,7 +284,7 @@ export function ForgotPasswordPage(): JSX.Element {
         {step === 'pending' ? (
           <div className="mt-6 space-y-4">
             <p className="rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-3 text-sm text-[#1E3A5F]">
-              Self-service password reset isn't permitted for your role, and no {approverRolesLabel || 'authorised approver'}{' '}
+              Self-service password reset isn&rsquo;t permitted for your role, and no {approverRolesLabel || 'authorised approver'}{' '}
               currently has contact info on file to receive a verification code on your behalf. Please contact your
               administrator directly.
             </p>
@@ -299,7 +299,7 @@ export function ForgotPasswordPage(): JSX.Element {
             {!selfService ? (
               <p className="rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-2.5 text-[11.5px] text-[#1E3A5F]">
                 A verification code was sent to {approverRolesLabel || 'an authorised approver'}. Ask them for it
-                after they've verified your identity.
+                after they&rsquo;ve verified your identity.
               </p>
             ) : null}
             <label className="grid gap-1.5 text-xs font-semibold text-[#374151]">
@@ -405,7 +405,7 @@ export function ForgotPasswordPage(): JSX.Element {
         {step === 'done' ? (
           <div className="mt-6 space-y-4">
             <p className="rounded-xl border border-[#BBF7D0] bg-[#F0FDF4] px-4 py-3 text-sm font-medium text-[#166534]">
-              Password updated successfully. You've been signed out of all devices — redirecting you to login…
+              Password updated successfully. You&rsquo;ve been signed out of all devices — redirecting you to login…
             </p>
             <Link to="/login" className={`block w-full text-center text-white ${primaryButtonClassName} py-3`}>
               Go to login now

@@ -90,7 +90,7 @@ export function OmPage(): JSX.Element {
     setColFilters((prev) => ({ ...prev, [key]: value }));
   const activeColFilterCount = Object.values(colFilters).filter((v) => v.trim() !== '').length;
 
-  const items = data?.items ?? [];
+  const items = useMemo(() => data?.items ?? [], [data?.items]);
 
   const counts = useMemo(() => {
     const c: Record<string, number> = {};
