@@ -30,6 +30,8 @@
     "db:seed-demo-roles": "tsx src/db/seedDemoRoles.ts",
     "db:seed-dummy-extras-2": "tsx src/db/seedDummyPresentationExtras2.ts",
     "db:seed-advance-to-agreement": "tsx src/db/seedAdvanceToAgreement.ts",
+    "db:seed-more-dummy-projects": "tsx src/db/seedMoreDummyProjects.ts",
+    "db:seed-full-field-completion": "tsx src/db/seedFullFieldCompletion.ts",
     "db:studio": "drizzle-kit studio",
     "db:backfill-divisions": "tsx src/scripts/backfillDivisions.ts",
     "gen:input-template": "tsx src/scripts/generateInputSheetTemplate.ts"
