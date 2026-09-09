@@ -306,17 +306,24 @@ export const managementActionItem = pgTable(
   }),
 );
 
-export const geoPhoto = pgTable('geo_photo', {
-  photoId: serial('photo_id').primaryKey(),
-  projectId: text('project_id')
-    .notNull()
-    .references(() => project.projectId, { onDelete: 'cascade' }),
-  url: text('url').notNull(),
-  caption: text('caption'),
-  photoDate: date('photo_date'),
-  sourceType: varchar('source_type', { length: 10 }),
-  fileName: varchar('file_name', { length: 200 }),
-});
+export const geoPhoto = pgTable(
+  'geo_photo',
+  {
+    photoId: serial('photo_id').primaryKey(),
+    projectId: text('project_id')
+      .notNull()
+      .references(() => project.projectId, { onDelete: 'cascade' }),
+    url: text('url').notNull(),
+    caption: text('caption'),
+    photoDate: date('photo_date'),
+    sourceType: varchar('source_type', { length: 10 }),
+    fileName: varchar('file_name', { length: 200 }),
+  },
+  (t) => ({
+    /** geoPhotosService filters by project on list + ownership checks (0013). */
+    projectIdx: index('idx_geo_photo_project').on(t.projectId),
+  }),
+);
 
 /* ============================================================
  * STANDALONE FEATURE TABLES
@@ -379,17 +386,24 @@ export const minutesOfMeeting = pgTable(
   }),
 );
 
-export const momActionPoint = pgTable('mom_action_point', {
-  actionId: serial('action_id').primaryKey(),
-  momId: integer('mom_id')
-    .notNull()
-    .references(() => minutesOfMeeting.momId, { onDelete: 'cascade' }),
-  description: text('description').notNull(),
-  owner: varchar('owner', { length: 120 }),
-  dueDate: date('due_date'),
-  status: varchar('status', { length: 10 }).notNull().default('Open'),
-  resolutionDate: date('resolution_date'),
-});
+export const momActionPoint = pgTable(
+  'mom_action_point',
+  {
+    actionId: serial('action_id').primaryKey(),
+    momId: integer('mom_id')
+      .notNull()
+      .references(() => minutesOfMeeting.momId, { onDelete: 'cascade' }),
+    description: text('description').notNull(),
+    owner: varchar('owner', { length: 120 }),
+    dueDate: date('due_date'),
+    status: varchar('status', { length: 10 }).notNull().default('Open'),
+    resolutionDate: date('resolution_date'),
+  },
+  (t) => ({
+    /** momService filters by MoM on list + ownership checks (0013). */
+    momIdx: index('idx_mom_action_point_mom').on(t.momId),
+  }),
+);
 
 /* ============================================================
  * AUTH & AUDIT
@@ -450,16 +464,27 @@ export const auditLog = pgTable(
   }),
 );
 
-export const auditLogChange = pgTable('audit_log_change', {
-  changeId: serial('change_id').primaryKey(),
-  auditId: integer('audit_id')
-    .notNull()
-    .references(() => auditLog.auditId, { onDelete: 'cascade' }),
-  fieldKey: varchar('field_key', { length: 60 }).notNull(),
-  fieldLabel: varchar('field_label', { length: 120 }),
-  beforeValue: text('before_value'),
-  afterValue: text('after_value'),
-});
+export const auditLogChange = pgTable(
+  'audit_log_change',
+  {
+    changeId: serial('change_id').primaryKey(),
+    auditId: integer('audit_id')
+      .notNull()
+      .references(() => auditLog.auditId, { onDelete: 'cascade' }),
+    fieldKey: varchar('field_key', { length: 60 }).notNull(),
+    fieldLabel: varchar('field_label', { length: 120 }),
+    beforeValue: text('before_value'),
+    afterValue: text('after_value'),
+  },
+  (t) => ({
+    /**
+     * auditService.listAudit() fans out with inArray(auditId, ...) on every
+     * audit page load. This is the append-only table that grows fastest in
+     * the schema, so the missing index cost rose monotonically (0013).
+     */
+    auditIdx: index('idx_audit_log_change_audit').on(t.auditId),
+  }),
+);
 
 /* ============================================================
  * REFRESH TOKENS (0001_refresh_token.sql)

@@ -9,9 +9,12 @@ import { displayNitDate, displayNitNumber } from '../../features/tender/tenderWo
 import { useClickOutside } from '../../hooks/useClickOutside';
 import { daysBetween, formatCurrencyCr, formatDate, formatPercent } from '../../lib/formatters';
 import { downloadProjectsExcel, downloadProjectsPdf, downloadProjectsPptx } from '../../lib/projectsExport';
+import { matchesDelayWindow, type DelayWindowKey } from '../../lib/projectDelay';
+import { remarkStyleOf } from '../../lib/remarkTone';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches, minMatches } from '../ui/ColumnFilter';
+import { DelayFilterDropdown } from '../ui/DelayFilterDropdown';
 import { OmAlertCell } from './OmAlertCell';
 import { PbgAlertCell } from './PbgAlertCell';
 import { PriorityBadge } from './PriorityBadge';
@@ -25,6 +28,14 @@ export interface Column {
   label: string;
   align?: 'left' | 'right' | 'center';
   minWidth?: number;
+  /**
+   * Let this column wrap instead of inheriting the table's default
+   * `whitespace-nowrap`. The width cap that makes wrapping actually happen
+   * has to be set on the cell's CONTENT, not here: with `table-layout: auto`
+   * a cell is sized to fit its content and `max-width` on the <td> is
+   * effectively ignored.
+   */
+  wrap?: boolean;
   defaultVisible?: boolean;
   render: (row: ProjectListItem, index: number, ctx: LookupCtx) => React.ReactNode;
   sortValue?: (row: ProjectListItem) => string | number | null;
@@ -292,16 +303,38 @@ const COLUMNS: Column[] = [
   {
     key: 'remark',
     label: 'Outstanding Gap',
-    minWidth: 220,
+    minWidth: 240,
+    wrap: true,
     defaultVisible: true,
-    render: (r) =>
-      r.remark ? (
-        <span className="inline-block max-w-[260px] rounded bg-[#FEF2F2] px-2 py-0.5 text-[11px] leading-snug text-[#B91C1C]">
-          ⚠ {r.remark}
+    render: (r) => {
+      if (!r.remark) return <span className="text-[#D1D5DB]">—</span>;
+      const style = remarkStyleOf(r.remark);
+      return (
+        <span
+          title={`${style.label}: ${r.remark}`}
+          className={cn(
+            // max-w + whitespace-normal are what make the text stack inside
+            // the cell instead of running under the next column (Task 7).
+            'inline-block max-w-[280px] whitespace-normal break-words rounded border px-2 py-1 text-[11px] leading-snug',
+            style.chip,
+          )}
+        >
+          {/*
+            The tone is named for screen readers on the glyph itself. NOT via
+            a `sr-only` span: Tailwind's .sr-only is `position:absolute`, and
+            the nearest positioned ancestor here lives OUTSIDE the table's
+            horizontal scroll container — so one per row, parked at a static
+            offset deep inside a 2800px-wide table, silently stretched the
+            document's scrollWidth to 2346px and gave the whole page a
+            horizontal scrollbar.
+          */}
+          <span role="img" aria-label={style.label}>
+            {style.icon}
+          </span>{' '}
+          {r.remark}
         </span>
-      ) : (
-        <span className="text-[#D1D5DB]">—</span>
-      ),
+      );
+    },
     sortValue: (r) => r.remark,
     exportValue: (r) => r.remark ?? '—',
   },
@@ -420,8 +453,70 @@ type FilterConfig =
   | {
       kind: 'select';
       getValue: (row: ProjectListItem, ctx: LookupCtx) => string | null | undefined;
-      getOptions: (ctx: LookupCtx, lookups: Lookups | undefined) => string[];
+      /** `rows` lets a column derive its options from the data actually
+       *  present (Task 6) rather than a fixed list — the date columns list
+       *  only the years that really occur. Lookup-backed columns ignore it. */
+      getOptions: (ctx: LookupCtx, lookups: Lookups | undefined, rows: ProjectListItem[]) => string[];
     };
+
+/* ── Task 6 — categorisers for the four alert/date columns ───────────────
+ * Each turns a cell into a small, stable set of choices. The alert columns
+ * reuse the very logic their cells render with, so a filter option always
+ * means the same thing the badge does. */
+
+/** PBG Alert bucket — mirrors PbgAlertCell's thresholds. */
+function pbgAlertCategory(row: ProjectListItem): string {
+  if (!row.pbgExpiryDate) return 'No PBG date';
+  const days = daysBetween(new Date(), row.pbgExpiryDate);
+  if (days < 0) return 'Expired';
+  if (days === 0) return 'Expires today';
+  if (days <= 30) return 'Expiring in 30 days';
+  return 'No alert';
+}
+const PBG_ALERT_OPTIONS = ['Expired', 'Expires today', 'Expiring in 30 days', 'No alert', 'No PBG date'];
+
+/** O&M status bucket — same derivation omAlertExportLabel uses. */
+function omStatusCategory(row: ProjectListItem): string {
+  if (row.status !== 'Completed' || !row.omApplicable || !row.omStartDate) return 'Not applicable';
+  const endDate = row.omEndDate
+    ? new Date(row.omEndDate)
+    : row.omPeriodMonths !== null && row.omPeriodMonths !== undefined
+      ? (() => {
+          const d = new Date(row.omStartDate as string);
+          d.setMonth(d.getMonth() + Math.round(row.omPeriodMonths as number));
+          return d;
+        })()
+      : null;
+  const daysLeft = endDate ? daysBetween(new Date(), endDate) : null;
+  if (row.omStatusOverride) return row.omStatusOverride;
+  if (daysLeft === null) return 'Not applicable';
+  const startDate = row.omStartDate ? new Date(row.omStartDate) : null;
+  if (startDate && new Date() < startDate) return 'Not Started';
+  if (daysLeft < 0) return 'Expired';
+  if (daysLeft <= 30) return 'Expiring Soon';
+  return 'Ongoing';
+}
+const OM_STATUS_OPTIONS = ['Ongoing', 'Expiring Soon', 'Expired', 'Not Started', 'Not applicable'];
+
+/** Year of a date-ish cell, or null. Used to build the date dropdowns. */
+function yearOf(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const y = String(value).slice(0, 4);
+  return /^\d{4}$/.test(y) ? y : null;
+}
+
+/** Distinct years present in a column, newest first, plus "Not set". */
+function yearOptions(rows: ProjectListItem[], pick: (r: ProjectListItem) => string | null | undefined): string[] {
+  const years = new Set<string>();
+  let hasBlank = false;
+  for (const r of rows) {
+    const y = yearOf(pick(r));
+    if (y) years.add(y);
+    else hasBlank = true;
+  }
+  const sorted = [...years].sort((a, b) => Number(b) - Number(a));
+  return hasBlank ? [...sorted, 'Not set'] : sorted;
+}
 
 /**
  * Task: Table Column Filter for Projects — matches the same per-column
@@ -471,6 +566,31 @@ const FILTER_CONFIG: Record<string, FilterConfig> = {
   remark: { kind: 'text', getValue: (r) => r.remark },
   priority: { kind: 'select', getValue: (r) => r.priority, getOptions: () => PRIORITY_OPTIONS },
   nitNumber: { kind: 'text', getValue: (r) => r.nitNumber },
+
+  // Task 6 — dropdown filters on the four columns that previously had none.
+  pbgAlert: {
+    kind: 'select',
+    getValue: (r) => pbgAlertCategory(r),
+    getOptions: () => PBG_ALERT_OPTIONS,
+  },
+  omAlert: {
+    kind: 'select',
+    getValue: (r) => omStatusCategory(r),
+    getOptions: () => OM_STATUS_OPTIONS,
+  },
+  expectedCompletion: {
+    kind: 'select',
+    // Falls back to the raw text when no parsed date exists, so rows showing
+    // a free-text completion still land in a bucket rather than vanishing.
+    getValue: (r) => yearOf(r.expectedCompletionDate) ?? yearOf(r.expectedCompletionRaw) ?? 'Not set',
+    getOptions: (_ctx, _lookups, rows) =>
+      yearOptions(rows, (r) => r.expectedCompletionDate ?? r.expectedCompletionRaw),
+  },
+  nitDate: {
+    kind: 'select',
+    getValue: (r) => yearOf(r.nitDate) ?? 'Not set',
+    getOptions: (_ctx, _lookups, rows) => yearOptions(rows, (r) => r.nitDate),
+  },
 };
 
 const LS_KEY = 'buidco.projects.columnVisibility.v1';
@@ -542,6 +662,8 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
   // Task: Table Column Filter — each filterable column narrows the table
   // independently, combined with AND, layered on top of the existing
   // sort/visibility/download features without touching any of them.
+  // "Delayed Projects" window (More than 30/60/90 days, 6 months, 1 year).
+  const [delayWindow, setDelayWindow] = useState<DelayWindowKey | ''>('');
   const [colFilters, setColFilters] = useState<Record<string, string>>({});
   const setColFilter = (key: string, value: string): void =>
     setColFilters((prev) => ({ ...prev, [key]: value }));
@@ -581,9 +703,9 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
   };
 
   const filteredRows = useMemo(
-    () => rows.filter(matchesAllFilters),
+    () => rows.filter((r) => matchesAllFilters(r) && matchesDelayWindow(r, delayWindow)),
     // eslint-disable-next-line react-hooks/exhaustive-deps -- matchesAllFilters closes over colFilters/ctx, both already deps
-    [rows, colFilters, ctx],
+    [rows, colFilters, ctx, delayWindow],
   );
 
   const visibleColumns = COLUMNS.filter((c) => visibility[c.key] !== false);
@@ -650,8 +772,12 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
 
   return (
     <div className="rounded-lg border border-[#E5E7EB] bg-white shadow-sm">
-      <div className="flex items-center justify-between border-b border-[#F3F4F6] px-3 py-2">
-        <span className="text-[10.5px] font-semibold uppercase tracking-wider text-[#6B7280]">
+      {/* Wraps at narrow widths: adding the Delay control (Task 9) pushed
+          this row 3px past a 390px viewport and gave the page a horizontal
+          scrollbar. `min-w-0` lets the status text shrink rather than
+          forcing the row wider than its container. */}
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[#F3F4F6] px-3 py-2">
+        <span className="min-w-0 text-[10.5px] font-semibold uppercase tracking-wider text-[#6B7280]">
           {activeFilterCount > 0
             ? `${filteredRows.length} of ${rows.length} project${rows.length === 1 ? '' : 's'} match ${activeFilterCount} column filter${activeFilterCount === 1 ? '' : 's'}`
             : `${rows.length} project${rows.length === 1 ? '' : 's'} on this page`}
@@ -669,6 +795,9 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
           {deleteError ? <span className="ml-2 normal-case text-[#B91C1C]">{deleteError}</span> : null}
         </span>
         <div className="flex items-center gap-2">
+          {/* Task 9 — same control and same delay maths as the Tender
+              Dashboard drill-in, so both agree on what "late" means. */}
+          <DelayFilterDropdown value={delayWindow} onChange={setDelayWindow} />
           <div className="relative" ref={exportMenuRef}>
             <Button
               variant="outline"
@@ -784,7 +913,7 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
                         <ColumnFilterSelect
                           value={colFilters[c.key] ?? ''}
                           onChange={(v) => setColFilter(c.key, v)}
-                          options={filter.getOptions(ctx, lookups).map((o) => ({ value: o, label: o }))}
+                          options={filter.getOptions(ctx, lookups, rows).map((o) => ({ value: o, label: o }))}
                         />
                       ) : (
                         <ColumnFilterText
@@ -811,8 +940,14 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
           <tbody>
             {sortedRows.length === 0 ? (
               <tr>
-                <td colSpan={visibleColumns.length + (isMd ? 1 : 0)} className="px-3 py-10 text-center text-[#6B7280]">
-                  No projects match your filters.
+                <td colSpan={visibleColumns.length + (isMd ? 1 : 0)} className="px-3 py-10 text-center">
+                  {/* Task 9 — the table keeps its headers and filter controls;
+                      only the body reports the empty result, so the user can
+                      adjust the filter that produced it. */}
+                  <div className="text-[13px] font-semibold text-[#374151]">No Projects Found</div>
+                  <div className="mt-1 text-[11.5px] text-[#6B7280]">
+                    No projects match the selected filters.
+                  </div>
                 </td>
               </tr>
             ) : (
@@ -834,7 +969,12 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
                     <td
                       key={c.key}
                       className={cn(
-                        'whitespace-nowrap px-3 py-2 align-middle text-[12px] text-[#374151]',
+                        'px-3 py-2 text-[12px] text-[#374151]',
+                        // Wrapping columns align to the top so a two-line gap
+                        // doesn't push its row's single-line cells off-centre.
+                        c.wrap
+                          ? 'whitespace-normal break-words align-top'
+                          : 'whitespace-nowrap align-middle',
                         c.align === 'right'
                           ? 'text-right'
                           : c.align === 'center'

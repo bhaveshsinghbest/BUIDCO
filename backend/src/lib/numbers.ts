@@ -17,3 +17,11 @@ export function toNumberOrNull(value: string | number | null | undefined): numbe
 export function toNumberOrZero(value: string | number | null | undefined): number {
   return toNumberOrNull(value) ?? 0;
 }
+
+/**
+ * Largest value a Postgres `integer` column can hold.
+ *
+ * Every surrogate key in this schema is `serial`/`integer`, so anything above
+ * this is not merely "not found" — it cannot be stored at all.
+ */
+export const PG_INT_MAX = 2_147_483_647;

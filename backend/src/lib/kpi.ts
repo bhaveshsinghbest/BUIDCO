@@ -188,30 +188,17 @@ export async function getStageBuckets(divisionId: number | null = null): Promise
       totalAaCr: toNumberOrNull(r.totalAaCr),
     }));
   }
-  // Mirrors v_stage_buckets structure (UNION ALL of stage-typed subselects)
-  // but with a division filter on each subselect.
+  // Same shape as v_stage_buckets (see drizzle/0014), with a division filter.
+  // Kept in lockstep with that view deliberately: when this grouped on the
+  // deprecated `project_stage` it under-counted the pipeline the same way,
+  // so a PD saw an even emptier board than an MD did.
   const result = await db.execute(sql`
-    SELECT stage,
-           COUNT(*)                                     AS project_count,
-           ROUND(SUM(COALESCE(aa_amount_cr,0)), 2)      AS total_aa_cr
-    FROM (
-      SELECT project_id, aa_amount_cr, 'Conceptualization' AS stage FROM project
-        WHERE project_stage = 'Conceptualization' AND division_id = ${divisionId}
-      UNION ALL
-      SELECT project_id, aa_amount_cr, 'Pre-Tender'
-        FROM project WHERE project_stage = 'Pre-Tender' AND division_id = ${divisionId}
-      UNION ALL
-      SELECT project_id, aa_amount_cr, 'Tender' FROM project
-        WHERE (project_stage = 'Tender' OR work_type IN ('Tender Work','Tender Service'))
-          AND division_id = ${divisionId}
-      UNION ALL
-      SELECT project_id, aa_amount_cr, 'Construction' FROM project
-        WHERE project_stage = 'Construction' AND division_id = ${divisionId}
-      UNION ALL
-      SELECT project_id, aa_amount_cr, 'O&M' FROM project
-        WHERE project_stage = 'O&M' AND division_id = ${divisionId}
-    ) b
-    GROUP BY stage
+    SELECT COALESCE(project_stage_v2, 'Other')::text  AS stage,
+           COUNT(*)                                    AS project_count,
+           ROUND(SUM(COALESCE(aa_amount_cr, 0)), 2)    AS total_aa_cr
+    FROM project
+    WHERE division_id = ${divisionId}
+    GROUP BY COALESCE(project_stage_v2, 'Other')::text
   `) as unknown as Rows<{ stage: string; project_count: number; total_aa_cr: string | null }>;
   return result.rows.map((r) => ({
     stage: r.stage ?? '',
@@ -773,6 +760,8 @@ export interface DivisionSummaryRow {
   completed: number;
   inProgress: number;
   delayed: number;
+  notStarted: number;
+  onHold: number;
   completionRatePct: number | null;
 }
 
@@ -790,6 +779,8 @@ export async function getDivisionSummary(
       completed: r.completed ?? 0,
       inProgress: r.inProgress ?? 0,
       delayed: r.delayed ?? 0,
+      notStarted: r.notStarted ?? 0,
+      onHold: r.onHold ?? 0,
       completionRatePct: toNumberOrNull(r.completionRatePct),
     }));
   }
@@ -808,6 +799,8 @@ export async function getDivisionSummary(
     completed: r.completed ?? 0,
     inProgress: r.inProgress ?? 0,
     delayed: r.delayed ?? 0,
+    notStarted: r.notStarted ?? 0,
+    onHold: r.onHold ?? 0,
     completionRatePct: toNumberOrNull(r.completionRatePct),
   }));
 }
@@ -820,6 +813,8 @@ export interface RegionSummaryRow {
   completed: number;
   inProgress: number;
   delayed: number;
+  notStarted: number;
+  onHold: number;
 }
 
 export async function getRegionSummary(
@@ -835,6 +830,8 @@ export async function getRegionSummary(
       completed: r.completed ?? 0,
       inProgress: r.inProgress ?? 0,
       delayed: r.delayed ?? 0,
+      notStarted: r.notStarted ?? 0,
+      onHold: r.onHold ?? 0,
     }));
   }
   // PDs see only the region that contains their assigned division, with
@@ -847,7 +844,9 @@ export async function getRegionSummary(
       COUNT(p.project_id)                                                        AS total,
       COUNT(*) FILTER (WHERE p.status = 'Completed')                             AS completed,
       COUNT(*) FILTER (WHERE p.status = 'In Progress')                           AS in_progress,
-      COUNT(*) FILTER (WHERE p.status = 'Delayed')                               AS delayed
+      COUNT(*) FILTER (WHERE p.status = 'Delayed')                               AS delayed,
+      COUNT(*) FILTER (WHERE p.status = 'Not Started')                           AS not_started,
+      COUNT(*) FILTER (WHERE p.status = 'On Hold')                               AS on_hold
     FROM region r
     JOIN division dv ON dv.region_id = r.region_id
     LEFT JOIN project p ON p.division_id = dv.division_id AND p.division_id = ${divisionId}
@@ -856,6 +855,7 @@ export async function getRegionSummary(
   `) as unknown as Rows<{
     region_id: number; region_name: string; division_count: number;
     total: number; completed: number; in_progress: number; delayed: number;
+    not_started: number; on_hold: number;
   }>;
   return result.rows.map((r) => ({
     regionId: r.region_id,
@@ -865,6 +865,8 @@ export async function getRegionSummary(
     completed: Number(r.completed ?? 0),
     inProgress: Number(r.in_progress ?? 0),
     delayed: Number(r.delayed ?? 0),
+    notStarted: Number(r.not_started ?? 0),
+    onHold: Number(r.on_hold ?? 0),
   }));
 }
 

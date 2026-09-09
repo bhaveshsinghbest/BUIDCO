@@ -335,6 +335,9 @@ export interface DivisionSummaryRow {
   completed: number;
   inProgress: number;
   delayed: number;
+  /** Added in drizzle/0015 so the Division page can show all five statuses. */
+  notStarted: number;
+  onHold: number;
   completionRatePct: number | null;
 }
 
@@ -346,6 +349,8 @@ export interface RegionSummaryRow {
   completed: number;
   inProgress: number;
   delayed: number;
+  notStarted: number;
+  onHold: number;
 }
 
 export interface DelayStatusRow {

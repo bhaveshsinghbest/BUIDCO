@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useUpdateProjectMutation } from '../../app/api/projectsApi';
+import { remarkStyleOf } from '../../lib/remarkTone';
 import { cn } from '../../lib/utils';
 import { Button } from '../ui/button';
 
@@ -21,6 +22,9 @@ export function RemarksButton({
   onClick: () => void;
   stopRowActivation?: boolean;
 }): JSX.Element {
+  // Colour and glyph come from the shared classifier so this pill reads the
+  // same in the Tender Dashboard, the MD briefing and anywhere else it lands.
+  const style = remarkStyleOf(remark);
   return (
     <button
       type="button"
@@ -30,15 +34,25 @@ export function RemarksButton({
           ? (e) => { if (e.key === 'Enter' || e.key === ' ') e.stopPropagation(); }
           : undefined
       }
-      title={remark ?? undefined}
+      title={remark ? `${style.label}: ${remark}` : undefined}
       className={cn(
         'max-w-[160px] truncate rounded border px-2 py-1 text-[11px] font-semibold transition-colors',
-        remark
-          ? 'border-[#FDE68A] bg-[#FFFBEB] text-[#92400E] hover:bg-[#FEF3C7]'
-          : 'border-[#D1D5DB] bg-white text-[#6B7280] hover:bg-[#F9FAFB]',
+        remark ? style.chip : 'border-[#D1D5DB] bg-white text-[#6B7280] hover:bg-[#F9FAFB]',
       )}
     >
-      {remark ? `💬 ${remark}` : '+ Add remark'}
+      {remark ? (
+        <>
+          {/* Tone named on the glyph, not via an absolutely-positioned
+              .sr-only span — these pills sit in horizontally-scrolling
+              tables where such a span escapes the scroll container. */}
+          <span role="img" aria-label={style.label}>
+            {style.icon}
+          </span>{' '}
+          {remark}
+        </>
+      ) : (
+        '+ Add remark'
+      )}
     </button>
   );
 }

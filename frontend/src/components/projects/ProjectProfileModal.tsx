@@ -4,7 +4,6 @@ import { useGetLookupsQuery } from '../../app/api/lookupsApi';
 import { useGetProjectQuery } from '../../app/api/projectsApi';
 import { useListCosEotForProjectQuery } from '../../app/api/cosEotApi';
 import { useListMgmtActionsForProjectQuery } from '../../app/api/mgmtActionsApi';
-import { useListMilestonesQuery } from '../../app/api/milestonesApi';
 import { useGetFundsUcByProjectQuery } from '../../app/api/fundsUcApi';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
@@ -56,7 +55,7 @@ type FieldKey =
   // Remarks card
   | 'remark' | 'mainWork'
   // Resources
-  | 'cosEotResource' | 'mgmtResource' | 'milestonesResource';
+  | 'cosEotResource' | 'mgmtResource';
 
 // ── Field group definitions for settings panel ────────────────────────────────
 interface FieldDef {
@@ -192,7 +191,6 @@ const FIELD_GROUPS: GroupDef[] = [
     fields: [
       { key: 'cosEotResource',   label: 'CoS / EoT Records' },
       { key: 'mgmtResource',     label: 'Management Actions' },
-      { key: 'milestonesResource',label: 'Milestones' },
     ],
   },
 ];
@@ -235,7 +233,6 @@ export function ProjectProfileModal({ projectId, onClose }: Props): JSX.Element 
   const detail       = useGetProjectQuery(projectId ?? '', { skip: !enabled });
   const cosEot       = useListCosEotForProjectQuery(projectId ?? '', { skip: !enabled });
   const mgmt         = useListMgmtActionsForProjectQuery(projectId ?? '', { skip: !enabled });
-  const milestones   = useListMilestonesQuery(projectId ?? '', { skip: !enabled });
   const fundsUc      = useGetFundsUcByProjectQuery(projectId ?? '', { skip: !enabled });
   const lookups      = useGetLookupsQuery(undefined, { skip: !enabled });
 
@@ -877,9 +874,10 @@ export function ProjectProfileModal({ projectId, onClose }: Props): JSX.Element 
                 </div>
               ) : null}
 
-              {/* Related Resources */}
-              {(isVisible('cosEotResource') || isVisible('mgmtResource') || isVisible('milestonesResource')) ? (
-                <div className="grid grid-cols-1 gap-3 lg:grid-cols-3">
+              {/* Related Resources — two cards since Milestones was removed,
+                  so the grid is 2-up rather than leaving a dead third column. */}
+              {(isVisible('cosEotResource') || isVisible('mgmtResource')) ? (
+                <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
                   {isVisible('cosEotResource') ? (
                     <FieldCard title={`CoS / EoT (${cosEot.data?.items.length ?? 0})`}>
                       {cosEot.isLoading ? (
@@ -943,32 +941,14 @@ export function ProjectProfileModal({ projectId, onClose }: Props): JSX.Element 
                     </FieldCard>
                   ) : null}
 
-                  {isVisible('milestonesResource') ? (
-                    <FieldCard title={`Milestones (${milestones.data?.items.length ?? 0})`}>
-                      {milestones.isLoading ? (
-                        <Skeleton className="h-12 w-full" />
-                      ) : milestones.data?.items.length ? (
-                        <ul className="space-y-1 text-[12px]">
-                          {milestones.data.items.slice(0, 4).map((m) => (
-                            <li
-                              key={m.milestoneId}
-                              className="flex items-center justify-between rounded border border-[#E5E7EB] px-2 py-1"
-                            >
-                              <span className="truncate">{m.milestoneName}</span>
-                              <span className="tabular-nums text-[#374151]">{m.weightPct}%</span>
-                            </li>
-                          ))}
-                          {milestones.data.items.length > 4 ? (
-                            <li className="text-[11px] italic text-[#6B7280]">
-                              +{milestones.data.items.length - 4} more…
-                            </li>
-                          ) : null}
-                        </ul>
-                      ) : (
-                        <p className="text-[12px] text-[#6B7280]">No milestones yet.</p>
-                      )}
-                    </FieldCard>
-                  ) : null}
+                  {/*
+                    The Milestones card was removed here per bhaveshTask.md
+                    Task 2 — this modal is what opens from both routes the
+                    task names (the Projects table row, and a project inside
+                    the Tender Dashboard). Milestones themselves are
+                    untouched: still owned by the Input Sheet, still driving
+                    `effectivePhysicalPct` for milestone-weighted projects.
+                  */}
                 </div>
               ) : null}
 

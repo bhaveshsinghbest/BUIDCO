@@ -199,6 +199,11 @@ export const vDivisionSummary = pgView('v_division_summary', {
   inProgress: integer('in_progress'),
   delayed: integer('delayed'),
   completionRatePct: numeric('completion_rate_pct', { precision: 5, scale: 0 }),
+  // Appended by drizzle/0015 — CREATE OR REPLACE VIEW can only add columns
+  // at the end, so these sit after completion_rate_pct rather than beside
+  // the other status counts.
+  notStarted: integer('not_started'),
+  onHold: integer('on_hold'),
 }).existing();
 
 export const vRegionSummary = pgView('v_region_summary', {
@@ -209,6 +214,8 @@ export const vRegionSummary = pgView('v_region_summary', {
   completed: integer('completed'),
   inProgress: integer('in_progress'),
   delayed: integer('delayed'),
+  notStarted: integer('not_started'),
+  onHold: integer('on_hold'),
 }).existing();
 
 /* CoS/EoT + delay + management action + outstanding gap views */

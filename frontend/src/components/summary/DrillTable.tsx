@@ -18,6 +18,9 @@ interface Props {
   sectorId?: number;
   districtId?: number;
   divisionId?: number;
+  /** Region roll-up (North/South Bihar) — the backend expands it to the
+   *  region's divisions, so it combines with the other filters. */
+  regionId?: number;
   /** Execution status (e.g. 'Completed', 'Delayed') — used by the
    *  clickable portfolio-metric blocks on Divisions/Schemes/etc. */
   status?: string;
@@ -73,6 +76,7 @@ export function DrillTable({
   sectorId,
   districtId,
   divisionId,
+  regionId,
   status,
   labelOfContext,
   onClose,
@@ -83,6 +87,7 @@ export function DrillTable({
     ...(sectorId ? { sectorId } : {}),
     ...(districtId ? { districtId } : {}),
     ...(divisionId ? { divisionId } : {}),
+    ...(regionId ? { regionId } : {}),
     ...(status ? { status } : {}),
   };
   const { data, isLoading } = useListProjectsQuery(args);

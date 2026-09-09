@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { actorFromReq } from '../lib/actor.js';
 import { requireAuth, requireWriter } from '../middleware/auth.js';
 import * as service from '../services/preMonsoonService.js';
+import { dbId } from '../lib/ids.js';
 
 export const preMonsoonRouter = Router();
 
 preMonsoonRouter.use(requireAuth);
 
-const idParam = z.object({ itemId: z.coerce.number().int().positive() });
+const idParam = z.object({ itemId: dbId });
 
 preMonsoonRouter.get('/', async (_req, res, next) => {
   try {

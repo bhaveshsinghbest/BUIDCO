@@ -10,10 +10,26 @@ import { expect, test } from '@playwright/test';
 const REFRESH_URL_RE = /\/api\/auth\/refresh$/;
 const LOGIN_URL_RE = /\/api\/auth\/login$/;
 const ME_URL_RE = /\/api\/auth\/me$/;
+const HEALTH_URL_RE = /\/api\/health$/;
 
-function mockRefresh401(page: import('@playwright/test').Page): Promise<void> {
+/**
+ * LoginPage fires a fire-and-forget /api/health on mount to wake the API
+ * before the user submits (Render free-tier cold start). Stub it so this
+ * suite keeps its "no backend dependency" property.
+ */
+async function mockHealth(page: import('@playwright/test').Page): Promise<void> {
+  await page.route(HEALTH_URL_RE, (route) => {
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'ok' }),
+    });
+  });
+}
+
+async function mockRefresh401(page: import('@playwright/test').Page): Promise<void> {
   // App.tsx mounts → fires refresh — mock a 401 so we land on /login cleanly.
-  return page.route(REFRESH_URL_RE, (route) => {
+  await page.route(REFRESH_URL_RE, (route) => {
     route.fulfill({
       status: 401,
       contentType: 'application/json',
@@ -22,8 +38,8 @@ function mockRefresh401(page: import('@playwright/test').Page): Promise<void> {
   });
 }
 
-function mockMe(page: import('@playwright/test').Page, user: unknown): Promise<void> {
-  return page.route(ME_URL_RE, (route) => {
+async function mockMe(page: import('@playwright/test').Page, user: unknown): Promise<void> {
+  await page.route(ME_URL_RE, (route) => {
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -35,12 +51,13 @@ function mockMe(page: import('@playwright/test').Page, user: unknown): Promise<v
 test.describe('Login page', () => {
   test.beforeEach(async ({ page }) => {
     await mockRefresh401(page);
+    await mockHealth(page);
   });
 
   test('renders the credentials form', async ({ page }) => {
     await page.goto('/login');
-    await expect(page.getByRole('heading', { name: /BUIDCO Project Monitoring/i })).toBeVisible();
-    await expect(page.getByPlaceholder('e.g. shri')).toBeVisible();
+    await expect(page.getByRole('heading', { name: /Welcome to BUIDCo Portal/i })).toBeVisible();
+    await expect(page.getByLabel('Username')).toBeVisible();
     await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible();
   });
 
@@ -56,7 +73,7 @@ test.describe('Login page', () => {
     });
 
     await page.goto('/login');
-    await page.getByPlaceholder('e.g. shri').fill('shri');
+    await page.getByLabel('Username').fill('shri');
     await page.getByLabel('Password').fill('wrong-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
@@ -77,11 +94,46 @@ test.describe('Login page', () => {
     });
 
     await page.goto('/login');
-    await page.getByPlaceholder('e.g. shri').fill('shri');
+    await page.getByLabel('Username').fill('shri');
     await page.getByLabel('Password').fill('anything');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
     await expect(page.getByRole('alert')).toHaveText(/Too many attempts/i);
+  });
+
+  /**
+   * Transport failures must NOT read as a credential rejection. The API is a
+   * separate service behind a proxy, so a cold start or gateway error arrives
+   * with no parseable body — previously indistinguishable from a wrong
+   * password, which sent users off retyping correct credentials.
+   */
+  test('a network failure says the server is unreachable, not "invalid password"', async ({ page }) => {
+    await page.route(LOGIN_URL_RE, (route) => route.abort('failed'));
+
+    await page.goto('/login');
+    await page.getByLabel('Username').fill('shri');
+    await page.getByLabel('Password').fill('correct-pw');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+
+    await expect(page.getByRole('alert')).toHaveText(/could not reach the server/i);
+    await expect(page.getByRole('alert')).not.toHaveText(/invalid username or password/i);
+  });
+
+  test('a 504 gateway error reports the server is waking up', async ({ page }) => {
+    await page.route(LOGIN_URL_RE, (route) => {
+      route.fulfill({
+        status: 504,
+        contentType: 'text/html',
+        body: '<html><body>Gateway Timeout</body></html>',
+      });
+    });
+
+    await page.goto('/login');
+    await page.getByLabel('Username').fill('shri');
+    await page.getByLabel('Password').fill('correct-pw');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+
+    await expect(page.getByRole('alert')).toHaveText(/starting up|waking up/i);
   });
 
   test('successful MD login redirects away from /login', async ({ page }) => {
@@ -110,7 +162,7 @@ test.describe('Login page', () => {
     await mockMe(page, mdUser);
 
     await page.goto('/login');
-    await page.getByPlaceholder('e.g. shri').fill('shri');
+    await page.getByLabel('Username').fill('shri');
     await page.getByLabel('Password').fill('correct-pw');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
@@ -157,7 +209,7 @@ test.describe('Login page', () => {
     });
 
     await page.goto('/login');
-    await page.getByPlaceholder('e.g. shri').fill('pd_kumar');
+    await page.getByLabel('Username').fill('pd_kumar');
     await page.getByLabel('Password').fill('pd-password');
     await page.getByRole('button', { name: 'Sign in' }).click();
 

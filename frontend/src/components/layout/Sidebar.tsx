@@ -65,12 +65,15 @@ interface Props {
   onCloseMobile: () => void;
   /** Opens the Tender Dashboard modal (separate group below the primary nav). */
   onOpenTenderDashboard: () => void;
+  /** True while the Tender Dashboard panel is open. It has no route of its
+   *  own, so the router cannot derive this — AppShell owns the state. */
+  tenderOpen: boolean;
   /** Opens the KPI reference guide drawer (mobile copy of TopNav's button). */
   onOpenKpiGuide: () => void;
 }
 
 export function Sidebar({
-  collapsed, onToggleCollapsed, mobileOpen, onCloseMobile, onOpenTenderDashboard, onOpenKpiGuide,
+  collapsed, onToggleCollapsed, mobileOpen, onCloseMobile, onOpenTenderDashboard, tenderOpen, onOpenKpiGuide,
 }: Props): JSX.Element {
   const currentUser = useAppSelector(selectCurrentUser);
   const role = currentUser?.role;
@@ -104,7 +107,13 @@ export function Sidebar({
         aria-label="Primary navigation"
         className={cn(
           // Base — desktop persistent, mobile fixed drawer
-          'sticky top-[50px] z-40 flex h-[calc(100vh-50px)] shrink-0 flex-col border-r border-[#E5E7EB] bg-white transition-all duration-200',
+          // Offset and height both track the REAL TopNav height (published by
+          // AppShell as --topnav-h). These were hard-coded to 50px — the
+          // height of TopNav's first row only — so the sidebar stuck too high
+          // and ran ~50px past the bottom of the screen, putting its last
+          // items out of reach. `dvh` rather than `vh` so mobile browser
+          // chrome doesn't cause the same overhang.
+          'sticky top-[var(--topnav-h,100px)] z-40 flex h-[calc(100dvh-var(--topnav-h,100px))] shrink-0 flex-col border-r border-[#E5E7EB] bg-white transition-all duration-200',
           // Collapsed width (desktop) toggles between rail and full
           collapsed ? 'lg:w-[64px]' : 'lg:w-[220px]',
           // Mobile: fixed drawer slides in from left
@@ -157,7 +166,7 @@ export function Sidebar({
         {/* Nav list — single scrollable container for both the primary
             navigation and (mobile-only) the Quick Actions section below it,
             so the two never scroll independently of one another. */}
-        <nav className="flex-1 overflow-y-auto py-2" aria-label="Primary">
+        <nav className="min-h-0 flex-1 overflow-y-auto py-2" aria-label="Primary">
           <ul className="flex flex-col gap-0.5 px-2">
             {visibleNav.map((item) => (
               <li key={item.to}>
@@ -168,6 +177,12 @@ export function Sidebar({
                   collapsed={collapsed}
                   end={item.end ?? false}
                   onNavigate={onCloseMobile}
+                  // The Tender Dashboard has no route, so the underlying
+                  // page's link stays "active" underneath it — leaving two
+                  // items highlighted at once and no clear answer to "where
+                  // am I?". While the panel is open it owns the current
+                  // state, and the route link steps back.
+                  forceInactive={tenderOpen}
                 />
               </li>
             ))}
@@ -192,6 +207,7 @@ export function Sidebar({
                 label="Tender Dashboard"
                 Icon={Gavel}
                 collapsed={collapsed}
+                active={tenderOpen}
                 onClick={() => {
                   onCloseMobile();
                   onOpenTenderDashboard();
@@ -237,19 +253,27 @@ interface SidebarLinkProps {
   collapsed: boolean;
   end: boolean;
   onNavigate: () => void;
+  /** Suppress the router-derived active state (the Tender Dashboard panel
+   *  is open and owns "current" instead). */
+  forceInactive?: boolean;
 }
 
 /**
- * Same visual grammar as SidebarLink but for actions that open a modal
- * rather than navigating. No `isActive` state — the modal manages its own
- * open/closed lifecycle.
+ * Same visual grammar as SidebarLink but for actions that open a panel
+ * rather than navigating.
+ *
+ * `active` is passed in rather than derived from the router, because the
+ * Tender Dashboard has no route of its own — it is panel state owned by
+ * AppShell. Without it the item stayed unstyled while the dashboard was
+ * open, so nothing in the nav indicated which section you were in.
  */
 function SidebarButton({
-  label, Icon, collapsed, onClick,
+  label, Icon, collapsed, active = false, onClick,
 }: {
   label: string;
   Icon: typeof LayoutDashboard;
   collapsed: boolean;
+  active?: boolean;
   onClick: () => void;
 }): JSX.Element {
   return (
@@ -257,14 +281,23 @@ function SidebarButton({
       type="button"
       onClick={onClick}
       title={collapsed ? label : undefined}
+      aria-current={active ? 'true' : undefined}
       className={cn(
-        'group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[12.5px] font-medium text-[#4B5563] transition-colors hover:bg-[#F3F4F6] hover:text-[#111827]',
+        'group flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-[12.5px] font-medium transition-colors',
         collapsed && 'lg:justify-center lg:px-1.5',
+        // Matches SidebarLink's active treatment exactly, so an open panel
+        // reads the same as an active route.
+        active
+          ? 'bg-[#1E3A5F] text-white'
+          : 'text-[#4B5563] hover:bg-[#F3F4F6] hover:text-[#111827]',
       )}
     >
       <Icon
         size={17}
-        className="shrink-0 text-[#6B7280] group-hover:text-[#374151]"
+        className={cn(
+          'shrink-0 transition-transform',
+          active ? 'text-white' : 'text-[#6B7280] group-hover:text-[#374151]',
+        )}
         aria-hidden
       />
       <span
@@ -280,7 +313,7 @@ function SidebarButton({
 }
 
 function SidebarLink({
-  to, label, Icon, collapsed, end, onNavigate,
+  to, label, Icon, collapsed, end, onNavigate, forceInactive = false,
 }: SidebarLinkProps): JSX.Element {
   return (
     <NavLink
@@ -292,7 +325,7 @@ function SidebarLink({
         cn(
           'group flex items-center gap-2.5 rounded-md px-2.5 py-2 text-[12.5px] font-medium transition-colors',
           collapsed && 'lg:justify-center lg:px-1.5',
-          isActive
+          isActive && !forceInactive
             ? 'bg-[#1E3A5F] text-white'
             : 'text-[#4B5563] hover:bg-[#F3F4F6] hover:text-[#111827]',
         )
@@ -304,7 +337,9 @@ function SidebarLink({
             size={17}
             className={cn(
               'shrink-0 transition-transform',
-              isActive ? 'text-white' : 'text-[#6B7280] group-hover:text-[#374151]',
+              isActive && !forceInactive
+                ? 'text-white'
+                : 'text-[#6B7280] group-hover:text-[#374151]',
             )}
             aria-hidden
           />

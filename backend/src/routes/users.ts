@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { actorFromReq } from '../lib/actor.js';
 import { requireAuth, requireRole, requireWriter } from '../middleware/auth.js';
 import * as service from '../services/usersService.js';
+import { dbId } from '../lib/ids.js';
 
 /**
  * User management endpoints.
@@ -22,7 +23,7 @@ export const usersRouter = Router();
 
 usersRouter.use(requireAuth);
 
-const idParam = z.object({ userId: z.coerce.number().int().positive() });
+const idParam = z.object({ userId: dbId });
 
 usersRouter.get('/', requireRole('MD', 'Admin', 'PD'), async (req, res, next) => {
   try {

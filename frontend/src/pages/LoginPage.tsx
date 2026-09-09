@@ -1,8 +1,10 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useLoginMutation } from '../app/api/authApi';
 import { useAppSelector } from '../app/hooks';
+import { env } from '../env';
 import { selectIsAuthenticated } from '../features/auth/authSlice';
+import { takeLogoutReason } from '../hooks/useInactivityLogout';
 import buidcoPic from '../assets/BUIDCo_pic.jpg';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
@@ -28,6 +30,40 @@ export function LoginPage(): JSX.Element {
   // { needsDivision, divisions[] }. We stash it here and render a picker.
   const [pdDivisions, setPdDivisions] = useState<PdDivision[] | null>(null);
   const [selectedDivisionId, setSelectedDivisionId] = useState<number | null>(null);
+
+  // If the inactivity timer ended the last session, say so. Being returned to
+  // a bare login screen with no explanation is exactly what made the old
+  // spurious logouts feel like a bug even once they were legitimate.
+  const [timedOut] = useState<boolean>(() => takeLogoutReason() === 'inactivity');
+
+  // Wake the API before the user can submit.
+  //
+  // The backend is on Render's free tier, which spins the instance down
+  // after ~15 minutes idle. The next request pays a full cold boot —
+  // measured at ~33s against /api/health, versus ~0.25s warm. Vercel's
+  // rewrite proxy (vercel.json -> buidco.onrender.com) gives up long
+  // before that and hands the browser an HTML gateway error, which
+  // fetchBaseQuery can't parse as JSON. The result was a PARSING_ERROR /
+  // FETCH_ERROR carrying no server message, so every such failure landed
+  // on the generic "Sign-in failed" fallback — indistinguishable from a
+  // wrong password.
+  //
+  // Firing a throwaway /health on mount overlaps the cold boot with the
+  // seconds the user spends typing, so by submit time the instance is
+  // usually already warm. Deliberately fire-and-forget: this is an
+  // optimisation, and a failure here must never block the form.
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetch(`${env.VITE_API_BASE_URL}/health`, {
+      method: 'GET',
+      signal: controller.signal,
+    }).catch(() => {
+      /* warm-up is best-effort; the real error surfaces on submit. */
+    });
+    return () => {
+      controller.abort();
+    };
+  }, []);
 
   const redirectTo = (location.state as LocationState | null)?.from?.pathname ?? '/';
   if (authed) {
@@ -110,6 +146,15 @@ export function LoginPage(): JSX.Element {
             <p className="mt-2 text-sm text-[#6B7280]">
               Sign in with your credentials to access the project dashboard.
             </p>
+
+            {timedOut ? (
+              <p
+                className="mt-4 rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-2.5 text-xs font-medium text-[#1E40AF]"
+                role="status"
+              >
+                You were signed out after 1 hour of inactivity. Please sign in again.
+              </p>
+            ) : null}
 
             <form className="mt-8 space-y-4" onSubmit={onSubmit}>
               {pdDivisions ? (
@@ -219,10 +264,44 @@ export function LoginPage(): JSX.Element {
   );
 }
 
+/**
+ * Turn an RTK Query error into something a user can act on.
+ *
+ * `status` is either an HTTP code or one of fetchBaseQuery's string tags.
+ * The transport failures matter here: the API is a separate Render service
+ * behind a Vercel rewrite, so a cold start, a dropped connection or a
+ * gateway HTML error page all arrive with NO parseable `data.error.message`.
+ * Collapsing those into the same "Sign-in failed" string as a genuine
+ * rejection is what made this impossible to diagnose from the screen —
+ * users read it as "wrong password" and retyped credentials that were fine.
+ */
 function extractErrorMessage(error: unknown): string | null {
   if (!error || typeof error !== 'object') return null;
-  const anyErr = error as { status?: number; data?: { error?: { message?: string } } };
+  const anyErr = error as {
+    status?: number | string;
+    originalStatus?: number;
+    data?: { error?: { message?: string } };
+  };
+
   if (anyErr.status === 401) return 'Invalid username or password.';
   if (anyErr.status === 429) return 'Too many attempts. Try again in a few minutes.';
+
+  // Never reached the API: offline, DNS/TLS failure, or the request was
+  // still in flight when the proxy gave up.
+  if (anyErr.status === 'FETCH_ERROR' || anyErr.status === 'TIMEOUT_ERROR') {
+    return 'Could not reach the server. It may be starting up — wait a few seconds and try again.';
+  }
+
+  // Reached something, but it answered with non-JSON — almost always a
+  // proxy/gateway error page rather than the API itself.
+  if (anyErr.status === 'PARSING_ERROR') {
+    return 'The server sent an unexpected response. It may be starting up — wait a few seconds and try again.';
+  }
+
+  const httpStatus = typeof anyErr.status === 'number' ? anyErr.status : anyErr.originalStatus;
+  if (httpStatus === 502 || httpStatus === 503 || httpStatus === 504) {
+    return 'The server is waking up. Please try again in a few seconds.';
+  }
+
   return anyErr.data?.error?.message ?? 'Sign-in failed. Please try again.';
 }

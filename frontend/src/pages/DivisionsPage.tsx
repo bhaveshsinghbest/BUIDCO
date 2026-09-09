@@ -16,20 +16,31 @@ const CARD_COLORS = [
 
 type SortKey = 'total' | 'delayed' | 'completion' | 'name';
 
-/** The three portfolio-metric blocks (Task 4 — "Divisions with projects"
- *  was removed) — each drills into the matching slice of projects, shown
- *  below the blocks (DrillTable has its own per-column filters). */
-type MetricKey = 'totalProjects' | 'completed' | 'delayed';
+/**
+ * The portfolio-metric blocks — each drills into the matching slice of
+ * projects, shown below the blocks (DrillTable has its own per-column
+ * filters). All five execution statuses are represented, so the counts add
+ * up to the total rather than leaving projects unaccounted for.
+ */
+type MetricKey = 'totalProjects' | 'completed' | 'delayed' | 'notStarted' | 'inProgress' | 'onHold';
 
 const METRIC_LABELS: Record<MetricKey, string> = {
   totalProjects: 'All projects',
   completed: 'Completed projects',
   delayed: 'Delayed projects',
+  notStarted: 'Not Started projects',
+  inProgress: 'In Progress projects',
+  onHold: 'On Hold projects',
 };
 
+/** Maps a block to the execution status it drills into. `totalProjects` has
+ *  none — it drills into every project in scope. */
 const METRIC_STATUS: Partial<Record<MetricKey, string>> = {
   completed: 'Completed',
   delayed: 'Delayed',
+  notStarted: 'Not Started',
+  inProgress: 'In Progress',
+  onHold: 'On Hold',
 };
 
 /**
@@ -48,13 +59,37 @@ export function DivisionsPage(): JSX.Element {
 
   const items = useMemo(() => summary.data?.items ?? [], [summary.data?.items]);
 
+  /**
+   * Divisions in the selected region — the scope every status block counts
+   * over. Deliberately NOT `filtered`: that also applies the search box and
+   * sort, which are only meant to narrow the division card list below. The
+   * blocks answer "how does this region stand?", so typing in the search box
+   * must not change them.
+   */
+  const regionScoped = useMemo(
+    () => (regionFilter ? items.filter((d) => d.regionId === regionFilter) : items),
+    [items, regionFilter],
+  );
+
+  /** Name of the focused region, for the drill-in header. */
+  const regionLabel = useMemo(
+    () =>
+      regionFilter
+        ? (regions.data?.items ?? []).find((r) => r.regionId === regionFilter)?.regionName ?? null
+        : null,
+    [regionFilter, regions.data?.items],
+  );
+
   const totals = useMemo(
     () => ({
-      projects: items.reduce((s, r) => s + r.total, 0),
-      completed: items.reduce((s, r) => s + r.completed, 0),
-      delayed: items.reduce((s, r) => s + r.delayed, 0),
+      projects: regionScoped.reduce((s, r) => s + r.total, 0),
+      completed: regionScoped.reduce((s, r) => s + r.completed, 0),
+      delayed: regionScoped.reduce((s, r) => s + r.delayed, 0),
+      notStarted: regionScoped.reduce((s, r) => s + r.notStarted, 0),
+      inProgress: regionScoped.reduce((s, r) => s + r.inProgress, 0),
+      onHold: regionScoped.reduce((s, r) => s + r.onHold, 0),
     }),
-    [items],
+    [regionScoped],
   );
 
   const filtered = useMemo(() => {
@@ -146,7 +181,9 @@ export function DivisionsPage(): JSX.Element {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+      {/* Six status blocks — every execution status, so the five status
+          counts sum to Total projects. Counts follow the selected region. */}
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-6">
         <Metric
           label="Total projects"
           value={totals.projects}
@@ -168,12 +205,38 @@ export function DivisionsPage(): JSX.Element {
           active={activeMetric === 'delayed'}
           onClick={() => setActiveMetric((k) => (k === 'delayed' ? null : 'delayed'))}
         />
+        <Metric
+          label="Not Started"
+          value={totals.notStarted}
+          tone="neutral"
+          active={activeMetric === 'notStarted'}
+          onClick={() => setActiveMetric((k) => (k === 'notStarted' ? null : 'notStarted'))}
+        />
+        <Metric
+          label="In Progress"
+          value={totals.inProgress}
+          tone="info"
+          active={activeMetric === 'inProgress'}
+          onClick={() => setActiveMetric((k) => (k === 'inProgress' ? null : 'inProgress'))}
+        />
+        <Metric
+          label="On Hold"
+          value={totals.onHold}
+          tone="warning"
+          active={activeMetric === 'onHold'}
+          onClick={() => setActiveMetric((k) => (k === 'onHold' ? null : 'onHold'))}
+        />
       </div>
 
       {activeMetric ? (
         <DrillTable
           {...(METRIC_STATUS[activeMetric] ? { status: METRIC_STATUS[activeMetric] } : {})}
-          labelOfContext={METRIC_LABELS[activeMetric]}
+          // Scope the drill-in to the selected region so the table below the
+          // blocks only ever contains that region's projects.
+          {...(regionFilter ? { regionId: regionFilter } : {})}
+          labelOfContext={
+            regionLabel ? `${METRIC_LABELS[activeMetric]} · ${regionLabel}` : METRIC_LABELS[activeMetric]
+          }
           onClose={() => setActiveMetric(null)}
         />
       ) : null}
@@ -254,14 +317,19 @@ function Metric({
 }: {
   label: string;
   value: number;
-  tone: 'brand' | 'success' | 'danger';
+  tone: 'brand' | 'success' | 'danger' | 'neutral' | 'info' | 'warning';
   active?: boolean;
   onClick?: () => void;
 }): JSX.Element {
+  // Tones mirror the status colours used elsewhere in the app (StatusBadge,
+  // the Sector Snapshot chips) so a status reads the same wherever it lands.
   const palette: Record<typeof tone, { border: string; text: string; activeBg: string }> = {
     brand: { border: 'border-t-[#1E3A5F]', text: 'text-[#1E3A5F]', activeBg: 'bg-[#1E3A5F]' },
     success: { border: 'border-t-[#15803D]', text: 'text-[#15803D]', activeBg: 'bg-[#15803D]' },
     danger: { border: 'border-t-[#B91C1C]', text: 'text-[#B91C1C]', activeBg: 'bg-[#B91C1C]' },
+    neutral: { border: 'border-t-[#6B7280]', text: 'text-[#374151]', activeBg: 'bg-[#6B7280]' },
+    info: { border: 'border-t-[#1D4ED8]', text: 'text-[#1D4ED8]', activeBg: 'bg-[#1D4ED8]' },
+    warning: { border: 'border-t-[#B45309]', text: 'text-[#B45309]', activeBg: 'bg-[#B45309]' },
   };
   const p = palette[tone];
   return (

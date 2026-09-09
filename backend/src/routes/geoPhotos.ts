@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { actorFromReq } from '../lib/actor.js';
 import { requireAuth, requireWriter } from '../middleware/auth.js';
 import * as service from '../services/geoPhotosService.js';
+import { dbId } from '../lib/ids.js';
 
 /** Mounted at /api/projects/:projectId/geo-photos (mergeParams). */
 export const geoPhotosRouter = Router({ mergeParams: true });
 
 const projectParams = z.object({ projectId: z.string().uuid() });
-const idParams = projectParams.extend({ photoId: z.coerce.number().int().positive() });
+const idParams = projectParams.extend({ photoId: dbId });
 
 geoPhotosRouter.get('/', requireAuth, async (req, res, next) => {
   try {

@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
+import { useAppSelector } from '../app/hooks';
+import { selectCurrentUser } from '../features/auth/authSlice';
 import { useGetSchemeSummaryQuery, useGetSchemeChartQuery } from '../app/api/kpisApi';
-import { useCreateSchemeMutation } from '../app/api/lookupsApi';
+import { useCreateSchemeMutation, useDeleteSchemeMutation } from '../app/api/lookupsApi';
 import { DrillTable } from '../components/summary/DrillTable';
+import { DeletePermanentlyDialog } from '../components/summary/DeletePermanentlyDialog';
 import { SummaryCard } from '../components/summary/SummaryCard';
 import { AddLookupItemDialog } from '../components/ui/AddLookupItemDialog';
 import { Button } from '../components/ui/button';
@@ -47,6 +50,27 @@ export function SchemesPage(): JSX.Element {
   const summary = useGetSchemeSummaryQuery();
   const chart = useGetSchemeChartQuery();
   const [createScheme] = useCreateSchemeMutation();
+  // Task 3 — permanent deletion. MD only, matching the backend gate; the
+  // control simply isn't rendered for anyone else rather than failing on click.
+  const currentUser = useAppSelector(selectCurrentUser);
+  const canDelete = currentUser?.role === 'MD';
+  const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [runDelete, deleteState] = useDeleteSchemeMutation();
+
+  const confirmDelete = async (): Promise<void> => {
+    if (!pendingDelete) return;
+    setDeleteError(null);
+    try {
+      await runDelete(pendingDelete.id).unwrap();
+      setPendingDelete(null);
+      if (selectedId === pendingDelete.id) setSelectedId(null);
+    } catch (err) {
+      const data = (err as { data?: { error?: { message?: string } } }).data;
+      setDeleteError(data?.error?.message ?? 'Could not delete. Please retry.');
+    }
+  };
+
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [activeMetric, setActiveMetric] = useState<MetricKey | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -217,6 +241,15 @@ export function SchemesPage(): JSX.Element {
                       }
                     : undefined
                 }
+                onDelete={
+                  canDelete
+                    ? () => {
+                        setDeleteError(null);
+                        setPendingDelete({ id: row.schemeId, name: row.schemeName });
+                      }
+                    : undefined
+                }
+                deleteLabel={`Delete ${row.schemeName} permanently`}
                 active={selectedId === row.schemeId}
                 onClick={() => {
                   setActiveMetric(null);
@@ -243,6 +276,20 @@ export function SchemesPage(): JSX.Element {
           placeholder="e.g. Namami Gange"
           onSubmit={(name) => createScheme(name).unwrap()}
           onClose={() => setAddOpen(false)}
+        />
+      ) : null}
+      {pendingDelete ? (
+        <DeletePermanentlyDialog
+          kind="Scheme"
+          name={pendingDelete.name}
+          impactNote={"Projects that also belong to another scheme are kept and simply unlinked."}
+          busy={deleteState.isLoading}
+          error={deleteError}
+          onCancel={() => {
+            setPendingDelete(null);
+            setDeleteError(null);
+          }}
+          onConfirm={() => void confirmDelete()}
         />
       ) : null}
     </article>

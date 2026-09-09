@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { actorFromReq } from '../lib/actor.js';
 import { requireAuth, requireWriter } from '../middleware/auth.js';
 import * as service from '../services/momService.js';
+import { dbId } from '../lib/ids.js';
 
 /** Mounted at /api/mom/:momId/action-points (mergeParams). */
 export const momActionPointsRouter = Router({ mergeParams: true });
 
-const momParams = z.object({ momId: z.coerce.number().int().positive() });
-const idParams = momParams.extend({ actionId: z.coerce.number().int().positive() });
+const momParams = z.object({ momId: dbId });
+const idParams = momParams.extend({ actionId: dbId });
 
 momActionPointsRouter.get('/', requireAuth, async (req, res, next) => {
   try {

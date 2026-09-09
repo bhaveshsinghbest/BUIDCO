@@ -7,9 +7,15 @@ import { Card, CardContent, CardHeader, CardTitle } from '../ui/card';
 import { Skeleton } from '../ui/skeleton';
 
 /**
- * Reads from v_stage_buckets — one row per active-pipeline stage
- * (Conceptualization → O&M). Stages missing from the response are
- * still rendered so the pipeline stays complete; they just show 0.
+ * Reads from v_stage_buckets — one row per pipeline stage. Stages missing
+ * from the response are still rendered so the pipeline stays complete; they
+ * just show 0.
+ *
+ * These keys must match `projectStageV2Values` in the backend's db/enums.ts
+ * exactly. They previously mirrored the superseded `project_stage` vocabulary
+ * — 'Conceptualization' with a -z-, and no Design/Other — so those projects
+ * had no bucket to land in, and the drill-down links (which filter the
+ * Projects list on projectStageV2) matched nothing. See drizzle/0014.
  */
 
 interface StageConfig {
@@ -20,11 +26,13 @@ interface StageConfig {
 }
 
 const STAGES: StageConfig[] = [
-  { key: 'Conceptualization', icon: '💡', short: 'Concept', tone: 'brand' },
+  { key: 'Conceptualisation', icon: '💡', short: 'Concept', tone: 'brand' },
+  { key: 'Design', icon: '📐', short: 'Design', tone: 'info' },
   { key: 'Pre-Tender', icon: '📄', short: 'Pre-tender', tone: 'info' },
   { key: 'Tender', icon: '🏷️', short: 'Tender', tone: 'warning' },
   { key: 'Construction', icon: '🚧', short: 'Construction', tone: 'danger' },
   { key: 'O&M', icon: '🔧', short: 'O&M', tone: 'success' },
+  { key: 'Other', icon: '🗂️', short: 'Other', tone: 'brand' },
 ];
 
 const TONE_STYLES: Record<
@@ -94,7 +102,7 @@ export function StageBucketsCard(): JSX.Element {
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <div className="grid grid-cols-5 gap-2">
+          <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
             {STAGES.map((s) => (
               <Skeleton key={s.key} className="h-24 w-full" />
             ))}
@@ -105,7 +113,7 @@ export function StageBucketsCard(): JSX.Element {
           <EmptyPipeline />
         ) : (
           <>
-            <ol className="grid gap-2 sm:grid-cols-5">
+            <ol className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7">
               {STAGES.map((stage, idx) => {
                 const bucket = byStage.get(stage.key);
                 const count = bucket?.count ?? 0;
@@ -184,11 +192,6 @@ export function StageBucketsCard(): JSX.Element {
                 );
               })}
             </ol>
-            <p className="mt-3 text-[11px] text-[#6B7280]">
-              Stages come from <code className="rounded bg-[#F3F4F6] px-1 py-0.5">project_stage</code>;
-              Tender bucket also folds in projects where{' '}
-              <code className="rounded bg-[#F3F4F6] px-1 py-0.5">work_type</code> is Tender Work / Tender Service.
-            </p>
           </>
         )}
       </CardContent>
@@ -204,8 +207,7 @@ function EmptyPipeline(): JSX.Element {
       </p>
       <p className="mt-2 font-medium text-[#374151]">No project-stage data yet.</p>
       <p className="mt-1 text-xs">
-        Stages populate once <code className="rounded bg-[#F3F4F6] px-1 py-0.5">project_stage</code> is
-        set from the Input Sheet (Phase 6 · sub-batch 4).
+        Stages populate once Project Stage is set from the Input Sheet.
       </p>
     </div>
   );

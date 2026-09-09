@@ -21,7 +21,23 @@ export function useClickOutside<T extends HTMLElement>(
         callbackRef.current();
       }
     };
+    /**
+     * Escape closes too (Task 5), so every menu in the app dismisses the same
+     * two ways regardless of which component owns it. Listening here rather
+     * than per-dropdown means a control cannot accidentally opt out.
+     *
+     * Note the outside-click half also gives "only one menu open at a time"
+     * for free: clicking a second toggle is a mousedown outside the first,
+     * which closes it before the second opens.
+     */
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') callbackRef.current();
+    };
     document.addEventListener('mousedown', handler);
-    return () => document.removeEventListener('mousedown', handler);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', handler);
+      document.removeEventListener('keydown', onKey);
+    };
   }, [active, ref]);
 }

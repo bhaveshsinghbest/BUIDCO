@@ -87,11 +87,11 @@ const KPI_SECTIONS: KpiGroup[] = [
   },
   {
     title: '3 · Stage Buckets',
-    intro: 'Groups projects by project_stage (Section 01 in Input Sheet).',
+    intro: 'Groups projects by Project Stage (Section 01 in Input Sheet). Every project falls in exactly one bucket.',
     kpis: [
       {
         label: 'Stage counts + AA totals',
-        formula: 'GROUP BY project.project_stage → count, SUM(aa_amount_cr)',
+        formula: 'GROUP BY project.project_stage_v2 → count, SUM(aa_amount_cr)',
         source: '/api/kpis/stage-buckets',
         why: 'Populates the stage strip on /overview and the workflow tabs in the reference JSX.',
       },

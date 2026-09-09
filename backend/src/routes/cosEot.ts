@@ -3,12 +3,13 @@ import { z } from 'zod';
 import { actorFromReq } from '../lib/actor.js';
 import { requireAuth, requireWriter } from '../middleware/auth.js';
 import * as service from '../services/cosEotService.js';
+import { dbId } from '../lib/ids.js';
 
 /** Mounted at /api/projects/:projectId/cos-eot — needs mergeParams so the parent's :projectId is visible. */
 export const cosEotRouter = Router({ mergeParams: true });
 
 const projectParams = z.object({ projectId: z.string().uuid() });
-const idParams = projectParams.extend({ cosId: z.coerce.number().int().positive() });
+const idParams = projectParams.extend({ cosId: dbId });
 
 cosEotRouter.get('/', requireAuth, async (req, res, next) => {
   try {

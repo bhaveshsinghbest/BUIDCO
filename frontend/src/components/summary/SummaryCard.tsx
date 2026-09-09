@@ -16,6 +16,14 @@ interface Props {
   money?: MoneyStrip | undefined;
   active: boolean;
   onClick: () => void;
+  /**
+   * Optional permanent-delete action (Task 3). Rendered as a sibling overlay
+   * rather than a nested control — the card itself is a <button>, and a
+   * button inside a button is invalid HTML that browsers resolve
+   * unpredictably.
+   */
+  onDelete?: (() => void) | undefined;
+  deleteLabel?: string;
 }
 
 /**
@@ -44,6 +52,8 @@ export function SummaryCard({
   money,
   active,
   onClick,
+  onDelete,
+  deleteLabel = 'Delete',
 }: Props): JSX.Element {
   const utilPct =
     money && money.allotedCr !== null && money.spentCr !== null && money.allotedCr > 0
@@ -59,12 +69,33 @@ export function SummaryCard({
           : '#15803D';
 
   return (
+    <div className="relative">
+      {onDelete ? (
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            onDelete();
+          }}
+          title={deleteLabel}
+          aria-label={deleteLabel}
+          className={cn(
+            'absolute right-2 top-2 z-10 flex h-7 w-7 items-center justify-center rounded-md border text-[13px] transition-colors',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#B91C1C]/40',
+            active
+              ? 'border-white/30 bg-white/15 text-white hover:bg-white/25'
+              : 'border-[#FCA5A5] bg-white text-[#B91C1C] hover:bg-[#FEF2F2]',
+          )}
+        >
+          <span aria-hidden>🗑</span>
+        </button>
+      ) : null}
     <button
       type="button"
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        'group relative flex flex-col items-start rounded-lg border p-4 text-left shadow-sm transition-all',
+        'group relative flex w-full flex-col items-start rounded-lg border p-4 text-left shadow-sm transition-all',
         active
           ? 'border-[#1E3A5F] bg-[#1E3A5F] text-white'
           : 'border-[#E5E7EB] bg-white hover:-translate-y-0.5 hover:shadow-md',
@@ -205,6 +236,7 @@ export function SummaryCard({
         </div>
       ) : null}
     </button>
+    </div>
   );
 }
 

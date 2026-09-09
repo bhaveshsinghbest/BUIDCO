@@ -62,6 +62,59 @@ describe('errorHandler', () => {
     expect(typeof res.body.error.message).toBe('string');
   });
 
+  /**
+   * Regression: body-parser errors used to fall through to the generic 500
+   * branch, so a truncated body or an oversized upload reported itself as an
+   * internal server error. These go through a real express.json() pipeline
+   * rather than a synthesised error, so they break if the upstream error
+   * shape ever changes.
+   */
+  describe('body-parser failures are client errors, not 500s', () => {
+    function buildJsonApp(limit: string): express.Express {
+      const app = express();
+      app.use(express.json({ limit }));
+      app.post('/echo', (req, res) => res.json({ ok: true, body: req.body }));
+      app.use(errorHandler);
+      return app;
+    }
+
+    it('maps malformed JSON to 400 BAD_JSON', async () => {
+      const res = await request(buildJsonApp('1mb'))
+        .post('/echo')
+        .set('Content-Type', 'application/json')
+        .send('{"broken": ')
+        .expect(400);
+      expect(res.body.error.code).toBe('BAD_JSON');
+      expect(res.body.error.stack).toBeUndefined();
+    });
+
+    it('maps an oversized body to 413 PAYLOAD_TOO_LARGE', async () => {
+      const res = await request(buildJsonApp('1kb'))
+        .post('/echo')
+        .set('Content-Type', 'application/json')
+        .send(JSON.stringify({ big: 'x'.repeat(5000) }))
+        .expect(413);
+      expect(res.body.error.code).toBe('PAYLOAD_TOO_LARGE');
+    });
+
+    it('does not echo the offending payload back to the client', async () => {
+      const res = await request(buildJsonApp('1mb'))
+        .post('/echo')
+        .set('Content-Type', 'application/json')
+        .send('{"secret-marker-value": ')
+        .expect(400);
+      expect(JSON.stringify(res.body)).not.toContain('secret-marker-value');
+    });
+
+    it('still maps a genuine unclassified Error to 500', async () => {
+      const app = buildApp((_req, _res, next) => {
+        next(new Error('real internal fault'));
+      });
+      const res = await request(app).get('/boom').expect(500);
+      expect(res.body.error.code).toBe('INTERNAL_ERROR');
+    });
+  });
+
   it('notFoundHandler returns 404 NOT_FOUND for any unknown path', async () => {
     const app = buildApp((_req, res) => res.json({ ok: true }));
     const res = await request(app).get('/other-path').expect(404);

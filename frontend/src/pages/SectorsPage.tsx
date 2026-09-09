@@ -1,7 +1,10 @@
 import { useMemo, useState } from 'react';
+import { useAppSelector } from '../app/hooks';
+import { selectCurrentUser } from '../features/auth/authSlice';
 import { useGetSectorSummaryQuery } from '../app/api/kpisApi';
-import { useCreateSectorMutation } from '../app/api/lookupsApi';
+import { useCreateSectorMutation, useDeleteSectorMutation } from '../app/api/lookupsApi';
 import { DrillTable } from '../components/summary/DrillTable';
+import { DeletePermanentlyDialog } from '../components/summary/DeletePermanentlyDialog';
 import { SummaryCard } from '../components/summary/SummaryCard';
 import { AddLookupItemDialog } from '../components/ui/AddLookupItemDialog';
 import { Button } from '../components/ui/button';
@@ -42,6 +45,27 @@ const METRIC_STATUS: Partial<Record<MetricKey, string>> = {
 export function SectorsPage(): JSX.Element {
   const summary = useGetSectorSummaryQuery();
   const [createSector] = useCreateSectorMutation();
+  // Task 3 — permanent deletion. MD only, matching the backend gate; the
+  // control simply isn't rendered for anyone else rather than failing on click.
+  const currentUser = useAppSelector(selectCurrentUser);
+  const canDelete = currentUser?.role === 'MD';
+  const [pendingDelete, setPendingDelete] = useState<{ id: number; name: string } | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [runDelete, deleteState] = useDeleteSectorMutation();
+
+  const confirmDelete = async (): Promise<void> => {
+    if (!pendingDelete) return;
+    setDeleteError(null);
+    try {
+      await runDelete(pendingDelete.id).unwrap();
+      setPendingDelete(null);
+      if (selectedId === pendingDelete.id) setSelectedId(null);
+    } catch (err) {
+      const data = (err as { data?: { error?: { message?: string } } }).data;
+      setDeleteError(data?.error?.message ?? 'Could not delete. Please retry.');
+    }
+  };
+
   const [selectedId, setSelectedId] = useState<number | null>(null);
   const [activeMetric, setActiveMetric] = useState<MetricKey | null>(null);
   const [addOpen, setAddOpen] = useState(false);
@@ -158,6 +182,15 @@ export function SectorsPage(): JSX.Element {
               completed={row.completed}
               inProgress={row.inProgress}
               delayed={row.delayed}
+              onDelete={
+                canDelete
+                  ? () => {
+                      setDeleteError(null);
+                      setPendingDelete({ id: row.sectorId, name: row.sectorName });
+                    }
+                  : undefined
+              }
+              deleteLabel={`Delete ${row.sectorName} permanently`}
               active={selectedId === row.sectorId}
               onClick={() => {
                 setActiveMetric(null);
@@ -185,6 +218,21 @@ export function SectorsPage(): JSX.Element {
           onClose={() => setAddOpen(false)}
         />
       ) : null}
+      {pendingDelete ? (
+        <DeletePermanentlyDialog
+          kind="Sector"
+          name={pendingDelete.name}
+          impactNote={undefined}
+          busy={deleteState.isLoading}
+          error={deleteError}
+          onCancel={() => {
+            setPendingDelete(null);
+            setDeleteError(null);
+          }}
+          onConfirm={() => void confirmDelete()}
+        />
+      ) : null}
+
     </article>
   );
 }

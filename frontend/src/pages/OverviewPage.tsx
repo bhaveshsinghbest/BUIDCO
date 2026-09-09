@@ -5,9 +5,7 @@ import { StatusDonut } from '../components/charts/StatusDonut';
 import { KpiGrid, KPI_FIELDS, KPI_STORAGE_KEY } from '../components/overview/KpiGrid';
 import { OmAlertsCard } from '../components/overview/OmAlertsCard';
 import { PbgAlertsCard } from '../components/overview/PbgAlertsCard';
-import { PbgExpiryBanner } from '../components/overview/PbgExpiryBanner';
 import { SectorSummaryCard } from '../components/overview/SectorSummaryCard';
-import { StageBucketsCard } from '../components/overview/StageBucketsCard';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
@@ -31,8 +29,11 @@ export function OverviewPage(): JSX.Element {
 
   return (
     <div className="space-y-5">
-      <PbgExpiryBanner />
-
+      {/* The red "PBG Expiry Alert" banner was removed from the top of the
+          Overview on request. The data itself is untouched — the PBG Alerts
+          card further down this page reads the same
+          /api/kpis/pbg-expiry-alerts endpoint, as does the Projects table's
+          PBG Alert column. */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-[#111827]">
@@ -73,7 +74,10 @@ export function OverviewPage(): JSX.Element {
         <KpiGrid data={overview.data} isVisible={isVisible} />
       )}
 
-      <StageBucketsCard />
+      {/* The "Active Projects — Current Stage" strip was removed per
+          bhaveshTask.md Task 2. The underlying v_stage_buckets view and its
+          /api/kpis/stage-buckets endpoint are untouched — only this card is
+          gone, so nothing else that reads stage data is affected. */}
 
       <div className="grid gap-4 lg:grid-cols-3">
         <Card className="lg:col-span-2">

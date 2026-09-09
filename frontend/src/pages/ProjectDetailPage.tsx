@@ -3,7 +3,6 @@ import { useGetLookupsQuery } from '../app/api/lookupsApi';
 import { useGetProjectQuery } from '../app/api/projectsApi';
 import { useListCosEotForProjectQuery } from '../app/api/cosEotApi';
 import { useListMgmtActionsForProjectQuery } from '../app/api/mgmtActionsApi';
-import { useListMilestonesQuery } from '../app/api/milestonesApi';
 import { useListGeoPhotosQuery } from '../app/api/geoPhotosApi';
 import { useGetFundsUcByProjectQuery } from '../app/api/fundsUcApi';
 import { useAppSelector } from '../app/hooks';
@@ -27,7 +26,6 @@ export function ProjectDetailPage(): JSX.Element {
   const lookups = useGetLookupsQuery();
   const cosEot = useListCosEotForProjectQuery(projectId ?? '', { skip: !projectId });
   const mgmt = useListMgmtActionsForProjectQuery(projectId ?? '', { skip: !projectId });
-  const milestones = useListMilestonesQuery(projectId ?? '', { skip: !projectId });
   const photos = useListGeoPhotosQuery(projectId ?? '', { skip: !projectId });
   const fundsUc = useGetFundsUcByProjectQuery(projectId ?? '', { skip: !projectId });
 
@@ -413,32 +411,14 @@ export function ProjectDetailPage(): JSX.Element {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Milestones ({milestones.data?.items.length ?? 0})</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {milestones.isLoading ? (
-              <Skeleton className="h-24 w-full" />
-            ) : milestones.data && milestones.data.items.length > 0 ? (
-              <ul className="space-y-1.5 text-xs">
-                {milestones.data.items.map((m) => (
-                  <li
-                    key={m.milestoneId}
-                    className="flex items-center justify-between rounded border border-[#E5E7EB] px-3 py-1.5"
-                  >
-                    <span className="font-medium text-[#111827]">{m.milestoneName}</span>
-                    <span className="tabular-nums text-[#374151]">{m.weightPct}%</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className="text-sm text-[#6B7280]">
-                No milestones defined yet. Add them from the Input Sheet.
-              </p>
-            )}
-          </CardContent>
-        </Card>
+        {/*
+          The Milestones card was removed from this page per bhaveshTask.md
+          Task 2. Milestones themselves are untouched — they are still owned
+          and edited in the Input Sheet, still drive `effectivePhysicalPct`
+          for milestone-weighted projects (the badge on that metric above),
+          and the /milestones endpoints are unchanged. Only this read-only
+          summary block is gone.
+        */}
 
         <Card>
           <CardHeader>

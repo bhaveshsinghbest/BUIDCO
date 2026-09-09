@@ -3,11 +3,12 @@ import { z } from 'zod';
 import { actorFromReq } from '../lib/actor.js';
 import { requireAuth, requireWriter } from '../middleware/auth.js';
 import * as service from '../services/managementActionService.js';
+import { dbId } from '../lib/ids.js';
 
 export const managementActionsRouter = Router({ mergeParams: true });
 
 const projectParams = z.object({ projectId: z.string().uuid() });
-const idParams = projectParams.extend({ itemId: z.coerce.number().int().positive() });
+const idParams = projectParams.extend({ itemId: dbId });
 
 managementActionsRouter.get('/', requireAuth, async (req, res, next) => {
   try {

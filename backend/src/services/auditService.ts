@@ -6,12 +6,13 @@ import { auditLog, auditLogChange } from '../db/schema.js';
 import type { AuditLog, AuditLogChange } from '../db/schema.js';
 import { decodeCursor, encodeCursor } from '../lib/pagination.js';
 import { HttpError } from '../middleware/errorHandler.js';
+import { optionalDbId } from '../lib/ids.js';
 
 export const listAuditQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
   cursor: z.string().min(1).optional(),
   projectId: z.string().uuid().optional(),
-  userId: z.coerce.number().int().positive().optional(),
+  userId: optionalDbId,
   action: z.enum(auditActions).optional(),
 });
 export type ListAuditQuery = z.infer<typeof listAuditQuery>;

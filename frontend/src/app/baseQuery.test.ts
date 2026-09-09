@@ -136,6 +136,63 @@ describe('baseQueryWithReauth', () => {
     vi.unstubAllGlobals();
   });
 
+  /**
+   * Regression for the "logged out while actively working" report.
+   *
+   * A refresh that fails for a TRANSPORT reason says nothing about whether
+   * the session is still valid — the refresh cookie is very likely fine and
+   * the request simply never arrived. Signing the user out here is what
+   * turned every network blip and every cold start into a surprise logout.
+   * Only an explicit 401/403 from the server may end the session.
+   */
+  it('does NOT clear credentials when refresh fails with a network error', async () => {
+    const store = makeStore();
+    store.dispatch(
+      setCredentials({
+        user: { userId: 1, username: 'shri', role: 'MD', fullName: 'Shri', canCreateProjects: true, canUpdateProjects: true, canDeleteProjects: true, canViewProjects: true },
+        accessToken: 'expired-token',
+        accessTokenExpiresAt: '2026-07-04T00:00:00.000Z',
+      }),
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(401, { error: { code: 'UNAUTHENTICATED', message: 'x' } }))
+      // /auth/refresh never lands — connection failure, not a rejection.
+      .mockRejectedValueOnce(new TypeError('Failed to fetch'));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await store.dispatch(kpisApi.endpoints.getOverviewKpis.initiate());
+
+    expect(store.getState().auth.status).toBe('in');
+    expect(store.getState().auth.accessToken).toBe('expired-token');
+
+    vi.unstubAllGlobals();
+  });
+
+  it('does NOT clear credentials when refresh fails with a 503', async () => {
+    const store = makeStore();
+    store.dispatch(
+      setCredentials({
+        user: { userId: 1, username: 'shri', role: 'MD', fullName: 'Shri', canCreateProjects: true, canUpdateProjects: true, canDeleteProjects: true, canViewProjects: true },
+        accessToken: 'expired-token',
+        accessTokenExpiresAt: '2026-07-04T00:00:00.000Z',
+      }),
+    );
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(401, { error: { code: 'UNAUTHENTICATED', message: 'x' } }))
+      .mockResolvedValueOnce(jsonResponse(503, { error: { code: 'UNAVAILABLE', message: 'waking' } }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await store.dispatch(kpisApi.endpoints.getOverviewKpis.initiate());
+
+    expect(store.getState().auth.status).toBe('in');
+
+    vi.unstubAllGlobals();
+  });
+
   it('de-duplicates refresh across concurrent 401s', async () => {
     const store = makeStore();
     store.dispatch(

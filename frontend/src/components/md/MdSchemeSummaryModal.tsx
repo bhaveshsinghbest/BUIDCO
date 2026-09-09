@@ -12,6 +12,7 @@ import { ProgressBar } from '../projects/ProgressBar';
 import { StatusBadge } from '../projects/StatusBadge';
 import type { FundsUcEntry, Lookups, ProjectDetail, ProjectListItem } from '../../types/api';
 import { useClickOutside } from '../../hooks/useClickOutside';
+import { remarkStyleOf } from '../../lib/remarkTone';
 import { cn } from '../../lib/utils';
 import { formatCurrencyCr, formatDate, formatPercent } from '../../lib/formatters';
 import { fundsUcStatusOf } from '../../lib/fundsUc';
@@ -1490,7 +1491,23 @@ function renderCell(
     }
     case 'status':              return <StatusBadge status={p.status} />;
     case 'contractType':        return <span className="text-[#374151]">{p.contractType ?? '—'}</span>;
-    case 'outstandingGap':      return <span className="text-[12px] text-[#B91C1C]">{p.remark ?? '—'}</span>;
+    case 'outstandingGap': {
+      // Was unconditionally red, which made "No outstanding issues reported."
+      // — the most common remark on record — look like a problem.
+      if (!p.remark) return <span className="text-[12px] text-[#9CA3AF]">—</span>;
+      const gapStyle = remarkStyleOf(p.remark);
+      return (
+        <span title={`${gapStyle.label}: ${p.remark}`} className={cn('text-[12px]', gapStyle.text)}>
+          {/* Named on the glyph rather than via an absolutely-positioned
+              .sr-only span — this table scrolls horizontally too, and such a
+              span escapes the scroller and stretches the page. */}
+          <span role="img" aria-label={gapStyle.label}>
+            {gapStyle.icon}
+          </span>{' '}
+          {p.remark}
+        </span>
+      );
+    }
     case 'priority':            return <PriorityBadge priority={p.priority} />;
     case 'pbgAlert':            return <PbgAlertCell pbgExpiryDate={p.pbgExpiryDate} />;
     case 'omStatus':            return (

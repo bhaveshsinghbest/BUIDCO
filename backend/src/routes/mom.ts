@@ -4,12 +4,13 @@ import { actorFromReq } from '../lib/actor.js';
 import { requireAuth, requireWriter } from '../middleware/auth.js';
 import * as service from '../services/momService.js';
 import { momActionPointsRouter } from './momActionPoints.js';
+import { dbId } from '../lib/ids.js';
 
 export const momRouter = Router();
 
 momRouter.use(requireAuth);
 
-const momIdParam = z.object({ momId: z.coerce.number().int().positive() });
+const momIdParam = z.object({ momId: dbId });
 
 momRouter.get('/', async (req, res, next) => {
   try {

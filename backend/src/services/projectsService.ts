@@ -17,6 +17,7 @@ import { toNumberOrNull } from '../lib/numbers.js';
 import { decodeCursor, encodeCursor } from '../lib/pagination.js';
 import type { CreateProjectInput, UpdateProjectInput } from '../lib/projectFields.js';
 import { HttpError } from '../middleware/errorHandler.js';
+import { optionalDbId } from '../lib/ids.js';
 
 /**
  * Fixed Input fields (Input Sheet §1 / §5) — Basic Info + Contract & Security.
@@ -89,11 +90,11 @@ export const listProjectsQuery = z.object({
   /** Filters on the new project_stage_v2 column (Phase A §3.2). */
   projectStage: z.string().min(1).optional(),
   contractType: z.string().min(1).optional(),
-  districtId: z.coerce.number().int().positive().optional(),
-  divisionId: z.coerce.number().int().positive().optional(),
-  regionId: z.coerce.number().int().positive().optional(),
-  sectorId: z.coerce.number().int().positive().optional(),
-  schemeId: z.coerce.number().int().positive().optional(),
+  districtId: optionalDbId,
+  divisionId: optionalDbId,
+  regionId: optionalDbId,
+  sectorId: optionalDbId,
+  schemeId: optionalDbId,
   search: z.string().min(1).max(200).optional(),
 });
 export type ListProjectsQuery = z.infer<typeof listProjectsQuery>;

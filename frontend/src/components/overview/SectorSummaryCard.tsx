@@ -8,13 +8,20 @@ export function SectorSummaryCard(): JSX.Element {
   const { data, isLoading, error } = useGetSectorSummaryQuery();
   const rows = data?.items ?? [];
   const maxTotal = Math.max(1, ...rows.map((r) => r.total));
+  // Every project belongs to exactly one sector, so this is the full
+  // portfolio. Surfacing it answers the "why does this show fewer than all
+  // our projects?" question directly: the per-sector chips below only count
+  // Done / In progress / Delayed, so anything Not Started or On Hold has no
+  // chip of its own and the totals appear to come up short. They don't.
+  const grandTotal = rows.reduce((acc, r) => acc + r.total, 0);
 
   return (
     <Card>
       <CardHeader className="flex-row items-center justify-between">
         <CardTitle>Sector Snapshot</CardTitle>
         <span className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]">
-          {rows.length} sector{rows.length === 1 ? '' : 's'}
+          {rows.length} sector{rows.length === 1 ? '' : 's'} · {grandTotal} project
+          {grandTotal === 1 ? '' : 's'}
         </span>
       </CardHeader>
       <CardContent>
@@ -63,10 +70,18 @@ export function SectorSummaryCard(): JSX.Element {
                         style={{ width: `${(row.delayed / row.total) * 100}%` }}
                       />
                     </div>
-                    <div className="col-span-2 mt-0.5 flex items-center gap-3 text-[10px] text-[#6B7280]">
+                    <div className="col-span-2 mt-0.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-[#6B7280]">
                       <Chip color="#15803D">{row.completed} Done</Chip>
                       <Chip color="#1D4ED8">{row.inProgress} In progress</Chip>
                       {row.delayed > 0 ? <Chip color="#B91C1C">{row.delayed} Delayed</Chip> : null}
+                      {/* The remainder — Not Started / On Hold — previously had
+                          no chip and no bar segment, which is what made a
+                          sector look like it was missing projects. */}
+                      {row.total - row.completed - row.inProgress - row.delayed > 0 ? (
+                        <Chip color="#9CA3AF">
+                          {row.total - row.completed - row.inProgress - row.delayed} Not started / on hold
+                        </Chip>
+                      ) : null}
                     </div>
                   </NavLink>
                   <ProgressAria value={row.total} total={maxTotal} label={row.sectorName} />

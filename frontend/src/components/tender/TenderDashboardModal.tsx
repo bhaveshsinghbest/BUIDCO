@@ -19,7 +19,9 @@ import {
 } from '../../features/tender/tenderWorkflow';
 import type { Lookups, ProjectListItem, TenderSubStage } from '../../types/api';
 import { cn } from '../../lib/utils';
-import { daysBetween, formatDate } from '../../lib/formatters';
+import { formatDate } from '../../lib/formatters';
+import { delayDaysOf, matchesDelayWindow, type DelayWindowKey } from '../../lib/projectDelay';
+import { DelayFilterDropdown } from '../ui/DelayFilterDropdown';
 import { Button } from '../ui/button';
 import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../ui/ColumnFilter';
 import { ProjectProfileModal } from '../projects/ProjectProfileModal';
@@ -185,9 +187,27 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col overflow-hidden bg-white"
+      // Task 5 — this used to be a bare `fixed inset-0`, so opening the Tender
+      // Dashboard painted over the whole viewport and the left nav vanished;
+      // every other section kept it, which is the inconsistency reported.
+      //
+      // It docks below the top bar at EVERY width, and from `lg` up also to
+      // the right of the sidebar (tracking --sidebar-w, so collapsing still
+      // works while it is open).
+      //
+      // The `top-[50px]` is not cosmetic. This element is a sibling of the
+      // app shell, so it paints above the whole shell no matter what
+      // z-indexes TopNav and Sidebar use internally — the only way to keep
+      // the top bar usable is to not cover it. Without that, below `lg`
+      // (where the sidebar is an off-canvas drawer reached via the hamburger)
+      // the panel buried the hamburger and there was no way to open the left
+      // nav at all while the dashboard was up.
+      //
+      // With the nav reachable this is no longer a modal dialog, so
+      // `aria-modal` is gone — leaving it set would tell screen readers the
+      // sidebar is inert when it is not.
+      className="fixed inset-0 top-[var(--topnav-h,100px)] z-50 flex flex-col overflow-hidden border-t border-[#E5E7EB] bg-white lg:left-[var(--sidebar-w,220px)] lg:border-l"
       role="dialog"
-      aria-modal="true"
       aria-label="Tender Dashboard"
     >
       <header
@@ -315,15 +335,11 @@ export function TenderDashboardModal({ open, onClose }: Props): JSX.Element | nu
  * Dashboard tab
  * ──────────────────────────────────────────────────────────────────────── */
 
-/** Days overdue against the project's planned (or expected) completion date
- *  — positive means delayed by that many days, non-positive means on track.
- *  `null` when neither date is set. Mirrors the sign convention used
- *  elsewhere in the app: `daysBetween(target, today)`. */
-function delayDaysOf(p: ProjectListItem): number | null {
-  const target = p.plannedEndDate ?? p.expectedCompletionDate;
-  if (!target) return null;
-  return daysBetween(target, new Date());
-}
+/*
+ * `delayDaysOf` now lives in lib/projectDelay.ts — it was moved there
+ * verbatim so the Projects section can filter on exactly the same numbers
+ * (Task 9). The behaviour here is unchanged.
+ */
 
 type DashboardSortKey = 'projectName' | 'division' | 'nitDate' | 'delay';
 
@@ -426,6 +442,8 @@ function DashboardTab({
   const [filterScheme, setFilterScheme] = useState('');
   const [filterSector, setFilterSector] = useState('');
   const [delayBuckets, setDelayBuckets] = useState<Set<DelayBucket>>(() => new Set());
+  // Task 9 — "Delayed Projects" window, shared with the Projects section.
+  const [delayWindow, setDelayWindow] = useState<DelayWindowKey | ''>('');
   const toggleDelayBucket = (b: DelayBucket): void => {
     setDelayBuckets((prev) => {
       const next = new Set(prev);
@@ -438,7 +456,7 @@ function DashboardTab({
   const activeFilterCount =
     Object.values(colFilters).filter((v) => v.trim() !== '').length +
     (filterStatus ? 1 : 0) + (filterDivisionTop ? 1 : 0) + (filterScheme ? 1 : 0) + (filterSector ? 1 : 0) +
-    delayBuckets.size;
+    delayBuckets.size + (delayWindow ? 1 : 0);
   const clearAllFilters = (): void => {
     setColFilters({});
     setFilterStatus('');
@@ -446,6 +464,7 @@ function DashboardTab({
     setFilterScheme('');
     setFilterSector('');
     setDelayBuckets(new Set());
+    setDelayWindow('');
   };
 
   // Standard table sorting — same click-header / arrow-indicator pattern as
@@ -500,9 +519,11 @@ function DashboardTab({
         const matchesAnyBucket = Array.from(delayBuckets).some((b) => delay !== null && delay > b);
         if (!matchesAnyBucket) return false;
       }
+      // "More than N" delay window, using the shared calculation.
+      if (!matchesDelayWindow(p, delayWindow)) return false;
       return true;
     });
-  }, [drillProjects, colFilters, lookups, filterStatus, filterDivisionTop, filterScheme, filterSector, delayBuckets]);
+  }, [drillProjects, colFilters, lookups, filterStatus, filterDivisionTop, filterScheme, filterSector, delayBuckets, delayWindow]);
 
   const sortedDrillProjects = useMemo(() => {
     if (!sortKey) return filteredDrillProjects;
@@ -645,17 +666,25 @@ function DashboardTab({
                 {sectorOptions.map((s) => <option key={s} value={s}>{s}</option>)}
               </select>
             </label>
+            {/* A <div>, not a <label>: <button> is a labelable element, so a
+                wrapping label would override the control's own accessible
+                name — screen readers would announce it as "Delay" instead of
+                "Delayed Projects". The siblings above are real <select>s and
+                are correctly wrapped. */}
+            <div className="grid gap-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[#6B7280]">Delay</span>
+              <DelayFilterDropdown value={delayWindow} onChange={setDelayWindow} />
+            </div>
           </div>
 
-          {drillProjects.length === 0 ? (
-            <p className="px-3 py-6 text-center text-[12.5px] text-[#6B7280]">
-              No projects currently in this sub-stage.
-            </p>
-          ) : filteredDrillProjects.length === 0 ? (
-            <p className="px-3 py-6 text-center text-[12.5px] text-[#6B7280]">
-              No projects match the current filters.
-            </p>
-          ) : (
+          {/*
+            Task 7 — the table structure stays put no matter what the filters
+            return. It used to be swapped for a bare paragraph, so narrowing
+            the Delay filter to zero matches made the whole thing vanish
+            (headers, filter inputs and all) and left the user with nothing to
+            adjust. Now only the body changes.
+          */}
+          {(
             <div className="overflow-x-auto">
               <table className="w-full min-w-[960px] border-collapse text-[12px]">
                 <thead>
@@ -725,16 +754,31 @@ function DashboardTab({
                   </tr>
                 </thead>
                 <tbody>
-                  {sortedDrillProjects.map((p) => (
-                    <ProjectDrillRow
-                      key={p.projectId}
-                      project={p}
-                      lookups={lookups}
-                      subStage={selectedStage}
-                      onOpenRemarks={onOpenRemarks}
-                      onOpenProject={onOpenProject}
-                    />
-                  ))}
+                  {sortedDrillProjects.length === 0 ? (
+                    <tr>
+                      <td colSpan={11} className="px-3 py-10 text-center">
+                        <div className="text-[13px] font-semibold text-[#374151]">
+                          No Projects Found
+                        </div>
+                        <div className="mt-1 text-[11.5px] text-[#6B7280]">
+                          {drillProjects.length === 0
+                            ? 'No projects are currently in this sub-stage.'
+                            : `None of the ${drillProjects.length} project${drillProjects.length === 1 ? '' : 's'} in this sub-stage match the selected filters.`}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    sortedDrillProjects.map((p) => (
+                      <ProjectDrillRow
+                        key={p.projectId}
+                        project={p}
+                        lookups={lookups}
+                        subStage={selectedStage}
+                        onOpenRemarks={onOpenRemarks}
+                        onOpenProject={onOpenProject}
+                      />
+                    ))
+                  )}
                 </tbody>
               </table>
             </div>
@@ -794,9 +838,10 @@ function ProjectDrillRow({
         <NitReadOnly value={project.nitDate} kind="date" />
       </td>
       <td className="px-3 py-2">
-        <span className="inline-flex rounded-full bg-[#EFF6FF] px-2 py-0.5 text-[10.5px] font-semibold text-[#1D4ED8]">
-          {subStage}
-        </span>
+        {/* Task 8 — the pill background was removed from Current Sub-Stage.
+            Text, value and alignment are unchanged, and no other column's
+            colour coding is touched. */}
+        <span className="text-[12px] text-[#111827]">{subStage}</span>
       </td>
       <td className="px-3 py-2 tabular-nums">
         {delayDays === null ? (

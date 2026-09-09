@@ -1,4 +1,10 @@
 {
   "extends": "./tsconfig.json",
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
+  // src/scripts/* are one-off maintenance tools run locally through tsx
+  // (`npm run gen:input-template`, `npm run db:backfill-divisions`) — the
+  // server never imports them, and they pull in dev-only packages such as
+  // exceljs. Compiling them into dist/ only made the production build
+  // depend on devDependencies. `npm run typecheck` still covers them via
+  // tsconfig.json, so they stay type-checked in CI and in the editor.
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/scripts"]
 }
