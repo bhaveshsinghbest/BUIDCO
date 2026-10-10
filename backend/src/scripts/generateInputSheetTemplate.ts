@@ -65,12 +65,12 @@ const COLUMNS: ColumnSpec[] = [
   { section: '01 · Basic Info', header: 'Division', key: 'divisionId', type: 'lookup', lookupSheet: 'Divisions', width: 20 },
   { section: '01 · Basic Info', header: 'Contractor', key: 'contractor', type: 'text', width: 28 },
   { section: '01 · Basic Info', header: 'PD', key: 'pd', type: 'text', width: 20 },
-  { section: '01 · Basic Info', header: 'Scheme(s)', key: 'schemes', type: 'multi-lookup', lookupSheet: 'Schemes', note: 'Comma-separated scheme names, e.g. "AMRUT 1.0, Namami Gange".', width: 30 },
+  { section: '01 · Basic Info', header: 'Scheme(s)', key: 'schemes', type: 'lookup', lookupSheet: 'Schemes', note: 'Pick from the Schemes sheet.', width: 30 },
   { section: '01 · Basic Info', header: 'Main Work', key: 'mainWork', type: 'text', width: 36 },
   { section: '01 · Basic Info', header: 'Physical Work Progress', key: 'physicalWorkProgressNote', type: 'text', note: 'Descriptive note — use the % columns below for numeric progress.', width: 30 },
   { section: '01 · Basic Info', header: 'Contract Type', key: 'contractType', type: 'enum', enumValues: CONTRACT_TYPES, required: true, width: 18 },
   { section: '01 · Basic Info', header: 'Sponsoring Department', key: 'sponsoringDept', type: 'text', width: 24 },
-  { section: '01 · Basic Info', header: 'Implementing Agency', key: 'implementingAgency', type: 'text', width: 24 },
+  { section: '01 · Basic Info', header: 'Implementing Agency', key: 'implementingAgency', type: 'enum', enumValues: ['BUIDCo'], width: 24 },
   { section: '01 · Basic Info', header: 'Project Sanction Date', key: 'sanctionDate', type: 'date', width: 18 },
   { section: '01 · Basic Info', header: 'Project Brief', key: 'projectBrief', type: 'text', width: 40 },
 
@@ -263,7 +263,13 @@ function addListsSheet(wb: ExcelJS.Workbook): void {
   }
 }
 
-function addLogSheet(wb: ExcelJS.Workbook, name: string, headers: string[]): void {
+interface LogDropdownSpec {
+  /** 1-based column index */
+  index: number;
+  values: readonly string[];
+}
+
+function addLogSheet(wb: ExcelJS.Workbook, name: string, headers: string[], dropdowns?: LogDropdownSpec[]): void {
   const ws = wb.addWorksheet(name, { views: [{ state: 'frozen', ySplit: 1 }] });
   headers.forEach((h, i) => {
     const cell = ws.getRow(1).getCell(i + 1);
@@ -272,6 +278,17 @@ function addLogSheet(wb: ExcelJS.Workbook, name: string, headers: string[]): voi
     cell.font = headerFont as unknown as ExcelJS.Font;
     ws.getColumn(i + 1).width = i === 0 ? 26 : 22;
   });
+  for (const { index, values } of dropdowns ?? []) {
+    const letter = toColumnLetter(index - 1);
+    addValidation(ws, `${letter}2:${letter}${1 + DATA_ROWS}`, {
+      type: 'list',
+      allowBlank: true,
+      formulae: [`"${values.join(',')}"`],
+      showErrorMessage: true,
+      errorTitle: 'Invalid value',
+      error: `Pick one of: ${values.join(', ')}`,
+    });
+  }
 }
 
 function addReadmeSheet(wb: ExcelJS.Workbook): void {
@@ -487,9 +504,13 @@ async function main(): Promise<void> {
   addLogSheet(wb, 'CoS-EoT Log', [
     'Project Name', 'CoS Number', 'CoS Date', 'Category', 'CoS Amount (Rs. Cr.)', 'Variation %',
     'EoT Number', 'EoT Days Granted', 'Time Linked?', 'Original End Date', 'New End Date (After EoT)', 'Revised Date (if Different)',
+  ], [
+    { index: 4, values: ['Scope Addition', 'Scope Deletion', 'Design Change', 'Quantity Variation', 'Others'] },
   ]);
   addLogSheet(wb, 'GeoTagging Photos Log', ['Project Name', 'Photo URL / Link', 'Caption', 'Date Added']);
-  addLogSheet(wb, 'Management Actions Log', ['Project Name', 'Topic', 'Status', 'Deadline Date']);
+  addLogSheet(wb, 'Management Actions Log', ['Project Name', 'Topic', 'Status', 'Deadline Date'], [
+    { index: 3, values: ['Open', 'Closed'] },
+  ]);
   addLookupSheet(wb, 'Sectors', lookups.sectors);
   addLookupSheet(wb, 'Divisions', lookups.divisions);
   addLookupSheet(wb, 'Schemes', lookups.schemes);
