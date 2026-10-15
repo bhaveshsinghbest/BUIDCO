@@ -38,12 +38,11 @@ export const utilityLinkClass = ({ isActive }: { isActive: boolean }): string =>
 interface UtilityNavClusterProps {
   /** Called after a link is clicked — used to close the mobile drawer. */
   onNavigate?: () => void;
-  onOpenKpiGuide: () => void;
   className?: string;
 }
 
 export function UtilityNavCluster({
-  onNavigate, onOpenKpiGuide, className,
+  onNavigate, className,
 }: UtilityNavClusterProps): JSX.Element {
   return (
     <div className={className}>
@@ -62,25 +61,9 @@ export function UtilityNavCluster({
           {item.label}
         </NavLink>
       ))}
-      <button
-        type="button"
-        onClick={() => {
-          onOpenKpiGuide();
-          onNavigate?.();
-        }}
-        className="inline-flex items-center gap-1.5 whitespace-nowrap rounded border border-[#E5E7EB] bg-white px-2.5 py-1.5 text-[11.5px] font-medium text-[#374151] transition-colors hover:bg-[#F9FAFB]"
-        aria-label="Open KPI reference guide"
-      >
-        <span aria-hidden>❓</span> KPI Guide
-      </button>
       <RoleGate allow={['MD', 'Admin']}>
         <NavLink to="/audit" className={utilityLinkClass} onClick={onNavigate}>
           <span aria-hidden>🕒</span> Audit Trail
-        </NavLink>
-      </RoleGate>
-      <RoleGate allow={['MD', 'Admin', 'PD']}>
-        <NavLink to="/users" className={utilityLinkClass} onClick={onNavigate}>
-          <span aria-hidden>👥</span> Users
         </NavLink>
       </RoleGate>
     </div>

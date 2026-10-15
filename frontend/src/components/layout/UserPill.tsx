@@ -1,9 +1,11 @@
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { LogOut } from 'lucide-react';
+import { ChevronDown, LogOut } from 'lucide-react';
 import { useLogoutMutation } from '../../app/api/authApi';
 import { useGetLookupsQuery } from '../../app/api/lookupsApi';
 import { useAppSelector } from '../../app/hooks';
 import { selectCurrentUser } from '../../features/auth/authSlice';
+import { cn } from '../../lib/utils';
 import type { UserRole } from '../../types/api';
 
 /** Full-form role labels for the header user pill (PD_role.md §2/§3). */
@@ -34,6 +36,19 @@ export function UserPill({ compact = false }: Props): JSX.Element {
   const user = useAppSelector(selectCurrentUser);
   const [logout, { isLoading: loggingOut }] = useLogoutMutation();
   const navigate = useNavigate();
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handler = (e: MouseEvent): void => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, [dropdownOpen]);
 
   const divisionName = user?.role === 'PD' && user.divisionId !== undefined
     ? lookups?.divisions.find((d) => d.divisionId === user.divisionId)?.divisionName
@@ -84,38 +99,62 @@ export function UserPill({ compact = false }: Props): JSX.Element {
     );
   }
 
-  // Compact single-row pill: dot · Name · role/division · sign-out.
-  // Fits within the 50px header without vertical overflow.
+  // Desktop header pill: compact trigger (status dot + designation) with
+  // a dropdown for full user info + sign-out.
   return (
-    <div
-      className="flex h-8 items-center gap-2 overflow-hidden rounded-lg border border-[#E5E7EB] bg-white pl-2.5 pr-1"
-      title={fullDescriptor}
-    >
-      <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#22C55E]" aria-hidden />
-      <div className="flex min-w-0 items-baseline gap-1.5">
-        <span className="max-w-[110px] truncate text-[11.5px] font-bold text-[#111827]">
-          {displayName}
-        </span>
-        <span className="text-[9.5px] font-bold uppercase tracking-wider text-[#6B7280]">
-          {roleLabel}
-        </span>
-        {divisionName ? (
-          <>
-            <span aria-hidden className="text-[9.5px] leading-none text-[#D1D5DB]">·</span>
-            <span className="max-w-[90px] truncate text-[9.5px] font-semibold uppercase tracking-wider text-[#6D28D9]">
-              {divisionName}
-            </span>
-          </>
-        ) : null}
-      </div>
+    <div ref={containerRef} className="relative">
       <button
         type="button"
-        onClick={() => void onSignOut()}
-        disabled={loggingOut}
-        className="ml-1 shrink-0 cursor-pointer rounded border border-transparent bg-white px-2 py-1 text-[10.5px] font-medium text-[#6B7280] transition-colors hover:border-[#FCA5A5] hover:bg-[#FEF2F2] hover:text-[#B91C1C] disabled:opacity-60"
+        onClick={() => setDropdownOpen((v) => !v)}
+        title={fullDescriptor}
+        className="flex h-8 items-center gap-1.5 rounded-lg border border-[#E5E7EB] bg-white pl-2.5 pr-2 text-[11.5px] transition-colors hover:bg-[#F9FAFB]"
+        aria-haspopup="true"
+        aria-expanded={dropdownOpen}
       >
-        {loggingOut ? 'Signing out…' : 'Sign out'}
+        <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#22C55E]" aria-hidden />
+        <span className="text-[9.5px] font-semibold uppercase tracking-wider text-[#6B7280]">
+          {roleLabel}
+        </span>
+        <ChevronDown
+          size={12}
+          aria-hidden
+          className={cn('shrink-0 text-[#9CA3AF] transition-transform duration-150', dropdownOpen && 'rotate-180')}
+        />
       </button>
+
+      {dropdownOpen && (
+        <div className="absolute right-0 top-full z-50 mt-1.5 w-56 rounded-xl border border-[#E5E7EB] bg-white shadow-lg ring-1 ring-black/5">
+          {/* User info */}
+          <div className="border-b border-[#F3F4F6] px-4 py-3">
+            <div className="mb-2.5 flex h-9 w-9 items-center justify-center rounded-full bg-[#1E3A5F] text-[13px] font-bold text-white">
+              {displayName.charAt(0).toUpperCase()}
+            </div>
+            <div className="text-[12.5px] font-bold text-[#111827]">{displayName}</div>
+            <div className="text-[11px] text-[#6B7280]">@{user?.username}</div>
+            <div className="mt-1 text-[11px] font-semibold text-[#374151]">{roleLabel}</div>
+            {divisionName && (
+              <div className="text-[11px] font-medium text-[#6D28D9]">{divisionName}</div>
+            )}
+          </div>
+          {/* Status */}
+          <div className="flex items-center gap-1.5 px-4 py-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-[#22C55E]" aria-hidden />
+            <span className="text-[11px] text-[#6B7280]">Online</span>
+          </div>
+          {/* Sign out */}
+          <div className="border-t border-[#F3F4F6] px-2 py-1.5">
+            <button
+              type="button"
+              onClick={() => { setDropdownOpen(false); void onSignOut(); }}
+              disabled={loggingOut}
+              className="flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-[12px] font-medium text-[#B91C1C] transition-colors hover:bg-[#FEF2F2] disabled:opacity-60"
+            >
+              <LogOut size={13} aria-hidden />
+              {loggingOut ? 'Signing out…' : 'Sign out'}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
