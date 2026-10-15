@@ -15,7 +15,11 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:e2e:ui": "playwright test --ui"
+    "test:e2e:ui": "playwright test --ui",
+    "audit": "playwright test e2e/audit --project=chromium --retries=0",
+    "audit:report": "node scripts/build-audit-report.mjs",
+    "audit:clean": "node -e \"require('node:fs').rmSync('audit-evidence',{recursive:true,force:true})\"",
+    "notes": "node scripts/build-presentation-pdf.mjs"
   },
   "dependencies": {
     "@reduxjs/toolkit": "^2.2.6",
@@ -47,6 +51,7 @@
     "@typescript-eslint/parser": "^7.16.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.19",
+    "docx": "^9.8.0",
     "eslint": "^8.57.0",
     "eslint-plugin-react": "^7.34.3",
     "eslint-plugin-react-hooks": "^4.6.2",

@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, Navigate, useLocation } from 'react-router-dom';
 import { useLoginMutation } from '../app/api/authApi';
 import { useAppSelector } from '../app/hooks';
@@ -19,6 +19,79 @@ interface PdDivision {
   divisionName: string;
 }
 
+/**
+ * How long to wait before each cold-start retry.
+ *
+ * The first attempt is already killed by the proxy at ~30s, so these add up
+ * to roughly 80s of further cover — comfortably past the slowest boot we
+ * have measured (56s).
+ */
+const COLD_START_BACKOFF_MS = [8_000, 16_000, 24_000];
+
+/**
+ * A connection failure faster than this never reached anything, so it is
+ * "no network", not "origin still booting" — the latter only surfaces after
+ * the proxy has sat waiting.
+ */
+const SLOW_FAILURE_MS = 5_000;
+
+/**
+ * True for failures that mean "the backend is probably still booting"
+ * rather than "the server considered this request and said no".
+ *
+ * A wrong password (401) or a rate limit (429) is never retried. Nor is an
+ * instant connection failure: if the user is simply offline, spinning
+ * through the whole backoff before admitting it would be far worse than
+ * saying so immediately.
+ */
+function isColdStartError(error: unknown, elapsedMs: number): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const { status, originalStatus } = error as {
+    status?: number | string;
+    originalStatus?: number;
+  };
+  const httpStatus = typeof status === 'number' ? status : originalStatus;
+
+  // Reached a proxy or gateway, which answered for an origin that isn't
+  // up yet. Unambiguously worth retrying.
+  if (
+    status === 'PARSING_ERROR' ||
+    httpStatus === 502 ||
+    httpStatus === 503 ||
+    httpStatus === 504
+  ) {
+    return true;
+  }
+
+  // Never got a verdict. Only a *slow* failure looks like a proxy giving up
+  // on a booting origin; an instant one means there was nothing to talk to.
+  if (status === 'FETCH_ERROR' || status === 'TIMEOUT_ERROR') {
+    const online = typeof navigator === 'undefined' || navigator.onLine;
+    return online && elapsedMs >= SLOW_FAILURE_MS;
+  }
+
+  return false;
+}
+
+/** Shown instead of an error while a cold-start retry is in flight. */
+function WakingNotice({ attempt }: { attempt: number }): JSX.Element {
+  return (
+    <p
+      className="flex items-center gap-2 rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-2.5 text-xs font-medium text-[#1E3A5F]"
+      role="status"
+    >
+      <span
+        aria-hidden
+        className="h-3.5 w-3.5 flex-shrink-0 animate-spin rounded-full border-2 border-[#BFDBFE] border-t-[#1D4ED8]"
+      />
+      <span>
+        Waking the server — this can take up to a minute on the first sign-in of the day.
+        Retrying automatically ({attempt} of {COLD_START_BACKOFF_MS.length})…
+      </span>
+    </p>
+  );
+}
+
 export function LoginPage(): JSX.Element {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
@@ -35,6 +108,18 @@ export function LoginPage(): JSX.Element {
   // a bare login screen with no explanation is exactly what made the old
   // spurious logouts feel like a bug even once they were legitimate.
   const [timedOut] = useState<boolean>(() => takeLogoutReason() === 'inactivity');
+
+  // Which cold-start retry we're on (0 = not retrying). Drives the "waking
+  // the server" notice and keeps the red error box hidden while we're still
+  // trying — see attemptLogin below.
+  const [wakeAttempt, setWakeAttempt] = useState(0);
+  const aliveRef = useRef(true);
+  useEffect(() => {
+    aliveRef.current = true;
+    return () => {
+      aliveRef.current = false;
+    };
+  }, []);
 
   // Wake the API before the user can submit.
   //
@@ -70,26 +155,59 @@ export function LoginPage(): JSX.Element {
     return <Navigate to={redirectTo} replace />;
   }
 
-  const onSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
-    e.preventDefault();
+  /**
+   * Sign in, riding out a cold start rather than reporting it as a failure.
+   *
+   * On Render's free tier the instance sleeps after ~15 minutes idle and the
+   * next request pays a full boot — measured at 33s and, on a later check,
+   * 56s. Vercel's rewrite proxy gives up around 30s and returns an HTML
+   * gateway page, so the first attempt after an idle period *always* fails
+   * with PARSING_ERROR even though nothing is wrong with the credentials or
+   * the server. The boot it triggered continues in the background, so simply
+   * trying again shortly after succeeds.
+   *
+   * So: retry transport failures on a backoff that covers roughly 80s of
+   * boot time, and only show the red error box once those are exhausted.
+   * A real rejection (401 wrong password, 429 rate limit) is never retried.
+   */
+  const attemptLogin = async (
+    body: { username: string; password: string; divisionId?: number },
+    retry = 0,
+  ): Promise<void> => {
+    const startedAt = Date.now();
     try {
-      const body: { username: string; password: string; divisionId?: number } = {
-        username,
-        password,
-      };
-      if (pdDivisions && selectedDivisionId !== null) {
-        body.divisionId = selectedDivisionId;
-      }
       const res = await login(body).unwrap();
+      setWakeAttempt(0);
       // PD, step 1 → show division picker. Otherwise the mutation's
       // onQueryStarted already set credentials and the Navigate above fires.
       if ('needsDivision' in res && res.needsDivision) {
         setPdDivisions(res.divisions);
         setSelectedDivisionId(res.divisions[0]?.divisionId ?? null);
       }
-    } catch {
-      /* error state surfaces via `error`. Reset picker so user can retry cleanly. */
+    } catch (err) {
+      const nextDelay = COLD_START_BACKOFF_MS[retry];
+      const coldStart = isColdStartError(err, Date.now() - startedAt);
+      if (nextDelay === undefined || !coldStart || !aliveRef.current) {
+        setWakeAttempt(0);
+        return;
+      }
+      setWakeAttempt(retry + 1);
+      await new Promise((resolve) => setTimeout(resolve, nextDelay));
+      if (!aliveRef.current) return;
+      await attemptLogin(body, retry + 1);
     }
+  };
+
+  const onSubmit = async (e: FormEvent<HTMLFormElement>): Promise<void> => {
+    e.preventDefault();
+    const body: { username: string; password: string; divisionId?: number } = {
+      username,
+      password,
+    };
+    if (pdDivisions && selectedDivisionId !== null) {
+      body.divisionId = selectedDivisionId;
+    }
+    await attemptLogin(body);
   };
 
   const restartLogin = (): void => {
@@ -98,7 +216,12 @@ export function LoginPage(): JSX.Element {
     setPassword('');
   };
 
-  const errorMessage = extractErrorMessage(error);
+  // While a cold-start retry is in flight the mutation's `error` holds the
+  // transport failure we are deliberately riding out — showing it would be
+  // telling the user about a problem we are already fixing.
+  const waking = wakeAttempt > 0;
+  const busy = isLoading || waking;
+  const errorMessage = waking ? null : extractErrorMessage(error);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-[#EEF1F6] p-4 sm:p-6 lg:p-10">
@@ -182,6 +305,7 @@ export function LoginPage(): JSX.Element {
                       ))}
                     </select>
                   </label>
+                  {waking ? <WakingNotice attempt={wakeAttempt} /> : null}
                   {errorMessage ? (
                     <p
                       className="rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] px-4 py-2.5 text-xs font-medium text-[#B91C1C]"
@@ -194,15 +318,15 @@ export function LoginPage(): JSX.Element {
                     <Button
                       type="submit"
                       className={`flex-1 ${primaryButtonClassName}`}
-                      disabled={isLoading || selectedDivisionId === null}
+                      disabled={busy || selectedDivisionId === null}
                     >
-                      {isLoading ? 'Signing in…' : 'Continue'}
+                      {waking ? 'Waking server…' : isLoading ? 'Signing in…' : 'Continue'}
                     </Button>
                     <Button
                       type="button"
                       variant="outline"
                       onClick={restartLogin}
-                      disabled={isLoading}
+                      disabled={busy}
                       className={secondaryButtonClassName}
                     >
                       ← Back
@@ -233,6 +357,7 @@ export function LoginPage(): JSX.Element {
                       className={inputClassName}
                     />
                   </label>
+                  {waking ? <WakingNotice attempt={wakeAttempt} /> : null}
                   {errorMessage ? (
                     <p
                       className="rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] px-4 py-2.5 text-xs font-medium text-[#B91C1C]"
@@ -244,9 +369,9 @@ export function LoginPage(): JSX.Element {
                   <Button
                     type="submit"
                     className={`w-full ${primaryButtonClassName}`}
-                    disabled={isLoading}
+                    disabled={busy}
                   >
-                    {isLoading ? 'Signing in…' : 'Sign in'}
+                    {waking ? 'Waking server…' : isLoading ? 'Signing in…' : 'Sign in'}
                   </Button>
                   <Link
                     to="/forgot-password"
@@ -293,9 +418,11 @@ function extractErrorMessage(error: unknown): string | null {
   }
 
   // Reached something, but it answered with non-JSON — almost always a
-  // proxy/gateway error page rather than the API itself.
+  // proxy/gateway error page rather than the API itself. By the time this
+  // reaches the screen the automatic cold-start retries have already been
+  // spent, so the advice is to wait longer, not to try instantly.
   if (anyErr.status === 'PARSING_ERROR') {
-    return 'The server sent an unexpected response. It may be starting up — wait a few seconds and try again.';
+    return 'The server is still waking up and did not respond in time. Please wait about a minute and sign in again.';
   }
 
   const httpStatus = typeof anyErr.status === 'number' ? anyErr.status : anyErr.originalStatus;

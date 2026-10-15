@@ -119,7 +119,12 @@ test.describe('Login page', () => {
     await expect(page.getByRole('alert')).not.toHaveText(/invalid username or password/i);
   });
 
-  test('a 504 gateway error reports the server is waking up', async ({ page }) => {
+  /**
+   * A gateway error is what a cold-starting Render instance looks like from
+   * the browser, so the page must treat it as "still booting" and retry
+   * rather than reporting a failure the user cannot act on.
+   */
+  test('a 504 gateway error shows a waking-up status, not an error', async ({ page }) => {
     await page.route(LOGIN_URL_RE, (route) => {
       route.fulfill({
         status: 504,
@@ -133,7 +138,59 @@ test.describe('Login page', () => {
     await page.getByLabel('Password').fill('correct-pw');
     await page.getByRole('button', { name: 'Sign in' }).click();
 
-    await expect(page.getByRole('alert')).toHaveText(/starting up|waking up/i);
+    await expect(page.getByRole('status')).toHaveText(/waking the server/i);
+    // The red error box must stay away while we are still retrying.
+    await expect(page.getByRole('alert')).toHaveCount(0);
+  });
+
+  /**
+   * The point of the retry: the first request after an idle period dies in
+   * the proxy, but it woke the origin, so the next one succeeds. The user
+   * should end up signed in without touching anything.
+   */
+  test('a cold start that recovers signs the user in without a retry click', async ({ page }) => {
+    const mdUser = {
+      userId: 1,
+      username: 'shri',
+      role: 'MD',
+      fullName: 'Test MD',
+      canCreateProjects: true,
+      canUpdateProjects: true,
+      canDeleteProjects: true,
+      canViewProjects: true,
+    };
+    let calls = 0;
+    await page.route(LOGIN_URL_RE, (route) => {
+      calls += 1;
+      if (calls === 1) {
+        // First attempt: the gateway gives up on the booting origin.
+        route.fulfill({
+          status: 504,
+          contentType: 'text/html',
+          body: '<html><body>Gateway Timeout</body></html>',
+        });
+        return;
+      }
+      route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          user: mdUser,
+          accessToken: 'test-token',
+          accessTokenExpiresAt: new Date(Date.now() + 900_000).toISOString(),
+        }),
+      });
+    });
+
+    await page.goto('/login');
+    await page.getByLabel('Username').fill('shri');
+    await page.getByLabel('Password').fill('correct-pw');
+    await page.getByRole('button', { name: 'Sign in' }).click();
+
+    await expect(page.getByRole('status')).toHaveText(/waking the server/i);
+    // First backoff is 8s, so allow for it plus the round trip.
+    await expect(page).not.toHaveURL(/\/login$/, { timeout: 20_000 });
+    expect(calls).toBe(2);
   });
 
   test('successful MD login redirects away from /login', async ({ page }) => {

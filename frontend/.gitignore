@@ -34,6 +34,11 @@ playwright-report/
 /playwright/.cache/
 blob-report/
 
+# ── Audit evidence (regenerate with `npm run audit`) ────────────────────
+# Screenshots, per-scenario JSON and the generated Excel import file. The
+# Word report is built from these; none of it belongs in version control.
+audit-evidence/
+
 # ── Vercel (produced by `vercel link` / `vercel dev`) ───────────────────
 .vercel/
 
@@ -53,3 +58,6 @@ pids/
 *.pid
 *.seed
 *.pid.lock
+
+# ── Presentation notes preview (regenerate with `npm run notes`) ───────
+presentation-preview/

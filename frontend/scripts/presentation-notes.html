@@ -1,0 +1,405 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>BUIDCO — Project Presentation Notes</title>
+<style>
+  @page { size: A4; margin: 11mm 12mm; }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font: 9.4pt/1.31 "Segoe UI", Calibri, system-ui, sans-serif;
+    color: #1F2937;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .page { page-break-after: always; }
+  .page:last-child { page-break-after: auto; }
+
+  h1 { font-size: 21pt; color: #1E3A5F; margin: 0 0 2pt; letter-spacing: -.3pt; }
+  .sub { font-size: 10.5pt; color: #6B7280; margin: 0 0 10pt; }
+
+  h2 {
+    font-size: 11.2pt; color: #fff; background: #1E3A5F;
+    margin: 8.5pt 0 5pt; padding: 2.8pt 7pt; border-radius: 3pt;
+  }
+  h2:first-of-type { margin-top: 3pt; }
+  h3 { font-size: 10pt; color: #1E3A5F; margin: 6pt 0 2.5pt; }
+
+  p { margin: 0 0 4pt; }
+  ul { margin: 0 0 5pt; padding-left: 13pt; }
+  li { margin-bottom: 1.6pt; }
+  b, strong { color: #111827; }
+  .muted { color: #6B7280; }
+  .small { font-size: 9pt; }
+
+  table { border-collapse: collapse; width: 100%; margin-bottom: 5.5pt; }
+  th, td { border: .6pt solid #D1D5DB; padding: 2.2pt 5pt; text-align: left; vertical-align: top; font-size: 8.5pt; }
+  th { background: #EEF2F7; color: #1E3A5F; font-weight: 600; }
+  td.k { background: #F9FAFB; font-weight: 600; white-space: nowrap; width: 23%; }
+
+  /* ---- pipeline diagram ---- */
+  .flow { display: flex; align-items: stretch; gap: 0; margin: 5.5pt 0 7pt; }
+  .node {
+    flex: 1; border: 1pt solid #1E3A5F; border-radius: 4pt;
+    padding: 5pt 4pt; text-align: center; background: #F8FAFC;
+  }
+  .node .t { font-weight: 700; font-size: 9.5pt; color: #1E3A5F; display: block; }
+  .node .d { font-size: 8pt; color: #4B5563; display: block; margin-top: 1.5pt; line-height: 1.25; }
+  .arrow { display: flex; align-items: center; padding: 0 4pt; color: #1E3A5F; font-size: 13pt; font-weight: 700; }
+
+  .side { display: flex; gap: 6pt; margin: 0 0 6pt; }
+  .side .node { background: #FFF7ED; border-color: #C2730A; }
+  .side .node .t { color: #9A5B06; }
+
+  /* ---- numbered step list ---- */
+  ol.steps { margin: 0 0 6pt; padding-left: 0; list-style: none; counter-reset: s; }
+  ol.steps li {
+    counter-increment: s; position: relative; padding-left: 18pt; margin-bottom: 2.2pt; font-size: 9pt;
+  }
+  ol.steps li::before {
+    content: counter(s); position: absolute; left: 0; top: .4pt;
+    width: 13pt; height: 13pt; border-radius: 50%; background: #1E3A5F; color: #fff;
+    font-size: 7.5pt; font-weight: 700; text-align: center; line-height: 13pt;
+  }
+
+  .cols { display: flex; gap: 10pt; }
+  .cols > div { flex: 1; }
+
+  .callout {
+    border-left: 2.5pt solid #B45309; background: #FFFBEB;
+    padding: 4pt 7pt; margin: 5pt 0; font-size: 8.7pt;
+  }
+  .qa { margin-bottom: 3.6pt; font-size: 8.7pt; }
+  .qa .q { font-weight: 700; color: #1E3A5F; }
+  .qa .a { color: #374151; }
+
+  .stat { display: flex; gap: 6pt; margin: 5.5pt 0 7pt; }
+  .stat div {
+    flex: 1; border: .8pt solid #D1D5DB; border-radius: 4pt;
+    padding: 4pt; text-align: center; background: #F9FAFB;
+  }
+  .stat .n { font-size: 15pt; font-weight: 700; color: #1E3A5F; display: block; line-height: 1.1; }
+  .stat .l { font-size: 7.5pt; color: #6B7280; text-transform: uppercase; letter-spacing: .3pt; }
+
+  .foot {
+    position: running(footer); font-size: 8pt; color: #9CA3AF;
+  }
+</style>
+
+<!-- ================= PAGE 1 ================= -->
+<section class="page">
+  <h1>BUIDCO Project Monitoring Dashboard</h1>
+  <p class="sub">Presentation notes — project overview, architecture, code flow and likely questions</p>
+
+  <h2>1. What the project is</h2>
+  <p>
+    A web dashboard that lets <b>BUIDCO</b> (Bihar Urban Infrastructure Development Corporation) track every
+    urban infrastructure project in one place — from sanction, through tendering and construction, to
+    O&amp;M handover.
+  </p>
+  <p>
+    It replaces scattered Excel sheets with a single live system that senior management, project directors
+    and office staff all read from.
+  </p>
+
+  <h3>The problem it solves</h3>
+  <ul>
+    <li>Project data lived in many Excel files and emails — no single source of truth.</li>
+    <li>Management had no live view of progress, delays or money spent.</li>
+    <li>No record of who changed what, so data could not be trusted or audited.</li>
+    <li>Expiring bank guarantees and O&amp;M contracts were easy to miss.</li>
+  </ul>
+
+  <h3>Project at a glance</h3>
+  <div class="stat">
+    <div><span class="n">23</span><span class="l">DB tables</span></div>
+    <div><span class="n">11</span><span class="l">API groups</span></div>
+    <div><span class="n">14</span><span class="l">Services</span></div>
+    <div><span class="n">21</span><span class="l">UI pages</span></div>
+    <div><span class="n">4</span><span class="l">User roles</span></div>
+  </div>
+
+  <h2>2. Key features</h2>
+  <table>
+    <tr><td class="k">Overview dashboard</td><td>Live KPIs — total, completed, in progress, delayed, on hold — plus charts and expiry alerts.</td></tr>
+    <tr><td class="k">Projects register</td><td>One searchable, filterable, sortable table of every project. Columns can be shown/hidden and exported to Excel, PDF or PowerPoint.</td></tr>
+    <tr><td class="k">Input Sheet</td><td>One large form to create or edit a project, split into sections (Basic Info, Phase &amp; Dates, Progress, Contract, O&amp;M, Funding…).</td></tr>
+    <tr><td class="k">Excel import</td><td>Bulk-create projects from a downloadable template. Every row is validated before anything is saved.</td></tr>
+    <tr><td class="k">CoS / EoT</td><td>Tracks Change of Scope and Extension of Time requests against each project.</td></tr>
+    <tr><td class="k">Management Actions</td><td>Action items raised against projects, with owners and status.</td></tr>
+    <tr><td class="k">Funds &amp; UC</td><td>Fund releases and Utilisation Certificates, split by central and state share.</td></tr>
+    <tr><td class="k">Pre-Monsoon Prep</td><td>Seasonal readiness checklist for drainage and flood-prone work.</td></tr>
+    <tr><td class="k">Minutes of Meeting</td><td>Meeting records with action points that can be tracked to closure.</td></tr>
+    <tr><td class="k">Tender Dashboard</td><td>Pipeline view of projects by tender sub-stage, with bulk stage transfer.</td></tr>
+    <tr><td class="k">Alerts</td><td>Warns when a PBG (bank guarantee) expires within 30 days, or an O&amp;M contract is ending.</td></tr>
+    <tr><td class="k">User Management</td><td>Create users, set role, grant per-user create/update/delete rights, assign divisions.</td></tr>
+    <tr><td class="k">Audit Trail</td><td>Records every create, update and delete — who, when, and which fields changed.</td></tr>
+  </table>
+
+  <div class="callout">
+    <b>One-line summary to open with:</b> “It is a role-based project monitoring dashboard for government
+    infrastructure projects — a React front end, a Node/Express API, and a PostgreSQL database — that gives
+    management a live view of progress, money and risk, with a full audit trail.”
+  </div>
+</section>
+
+<!-- ================= PAGE 2 ================= -->
+<section class="page">
+  <h1>Architecture &amp; Technology Stack</h1>
+  <p class="sub">How the pieces fit together, and what each technology is for</p>
+
+  <h2>3. System architecture</h2>
+  <div class="flow">
+    <div class="node"><span class="t">User</span><span class="d">Browser<br>(officer / MD)</span></div>
+    <div class="arrow">&#9654;</div>
+    <div class="node"><span class="t">Frontend</span><span class="d">React + Vite SPA<br>hosted on Vercel</span></div>
+    <div class="arrow">&#9654;</div>
+    <div class="node"><span class="t">Backend</span><span class="d">Node.js + Express API<br>hosted on Render</span></div>
+    <div class="arrow">&#9654;</div>
+    <div class="node"><span class="t">Database</span><span class="d">PostgreSQL<br>via Drizzle ORM</span></div>
+  </div>
+
+  <div class="side">
+    <div class="node"><span class="t">UploadThing</span><span class="d">Stores geo-tagged site photos</span></div>
+    <div class="node"><span class="t">Upstash Redis</span><span class="d">Rate-limits login &amp; uploads</span></div>
+    <div class="node"><span class="t">SMTP mail</span><span class="d">Sends forgot-password OTP</span></div>
+  </div>
+
+  <h3>How the parts talk to each other</h3>
+  <ul>
+    <li>The frontend is a <b>static build</b> (HTML, CSS, JS). Vercel serves it from a CDN — there is no React code running on a server.</li>
+    <li>The browser calls <b>/api/…</b> on its own domain. Vercel <b>rewrites</b> those calls to the Render backend.</li>
+    <li>Because the call looks same-origin to the browser, there is no CORS preflight, cookies flow normally, and the backend URL is never exposed in the UI.</li>
+    <li>The backend is a <b>REST API returning JSON</b>. It never returns HTML.</li>
+    <li>Express talks to PostgreSQL through <b>Drizzle ORM</b>, a type-safe query builder.</li>
+  </ul>
+
+  <h2>4. Technology stack</h2>
+
+  <h3>Frontend</h3>
+  <table>
+    <tr><td class="k">React 18</td><td>Builds the user interface out of reusable components.</td></tr>
+    <tr><td class="k">TypeScript</td><td>Adds types to JavaScript so mistakes are caught while coding, not in production.</td></tr>
+    <tr><td class="k">Vite</td><td>Dev server and build tool. Very fast startup and hot reload.</td></tr>
+    <tr><td class="k">Redux Toolkit + RTK Query</td><td>Holds app state (like the logged-in user) and handles all API calls, caching and refetching.</td></tr>
+    <tr><td class="k">React Router</td><td>Moves between pages without reloading the browser.</td></tr>
+    <tr><td class="k">Tailwind CSS</td><td>Styling with utility classes, so the look stays consistent.</td></tr>
+    <tr><td class="k">Recharts</td><td>Draws the dashboard bar charts and donut charts.</td></tr>
+    <tr><td class="k">ExcelJS / jsPDF / PptxGenJS</td><td>Exports the project table to Excel, PDF and PowerPoint; ExcelJS also reads the import file.</td></tr>
+    <tr><td class="k">Zod</td><td>Checks form and environment values are the right shape.</td></tr>
+  </table>
+
+  <h3>Backend</h3>
+  <table>
+    <tr><td class="k">Node.js + Express</td><td>The web server that receives HTTP requests and returns JSON.</td></tr>
+    <tr><td class="k">TypeScript</td><td>Same safety benefit as on the frontend; shared mental model.</td></tr>
+    <tr><td class="k">Drizzle ORM</td><td>Builds SQL queries in a type-safe way and manages migrations.</td></tr>
+    <tr><td class="k">Zod</td><td>Validates every incoming request body and query string at the API edge.</td></tr>
+    <tr><td class="k">jsonwebtoken</td><td>Creates and verifies the JWT access tokens used for login.</td></tr>
+    <tr><td class="k">bcryptjs</td><td>Hashes passwords so they are never stored in plain text.</td></tr>
+    <tr><td class="k">Helmet &amp; CORS</td><td>Sets protective HTTP headers and controls which websites may call the API.</td></tr>
+    <tr><td class="k">Nodemailer</td><td>Sends the password-reset OTP email.</td></tr>
+  </table>
+
+  <div class="cols">
+    <div>
+      <h3>Database</h3>
+      <table>
+        <tr><td class="k">PostgreSQL</td><td>The main relational database — managed Postgres in the cloud for production, local Postgres for development.</td></tr>
+        <tr><td class="k">SQL views</td><td>Pre-compute alert lists for the dashboard.</td></tr>
+      </table>
+    </div>
+    <div>
+      <h3>Dev &amp; testing tools</h3>
+      <table>
+        <tr><td class="k">Vitest</td><td>Unit tests (101 passing).</td></tr>
+        <tr><td class="k">Playwright</td><td>End-to-end browser tests.</td></tr>
+        <tr><td class="k">ESLint</td><td>Keeps code style consistent.</td></tr>
+      </table>
+    </div>
+  </div>
+</section>
+
+<!-- ================= PAGE 3 ================= -->
+<section class="page">
+  <h1>Code Flow — Request and Response</h1>
+  <p class="sub">What actually happens when a user clicks something</p>
+
+  <h2>5. The journey of one request</h2>
+  <div class="flow">
+    <div class="node"><span class="t">UI</span><span class="d">Page / component</span></div>
+    <div class="arrow">&#9654;</div>
+    <div class="node"><span class="t">RTK Query</span><span class="d">Hook + cache</span></div>
+    <div class="arrow">&#9654;</div>
+    <div class="node"><span class="t">Route</span><span class="d">Express + Zod</span></div>
+    <div class="arrow">&#9654;</div>
+    <div class="node"><span class="t">Service</span><span class="d">Business logic</span></div>
+    <div class="arrow">&#9654;</div>
+    <div class="node"><span class="t">Drizzle</span><span class="d">SQL query</span></div>
+    <div class="arrow">&#9654;</div>
+    <div class="node"><span class="t">Postgres</span><span class="d">Rows</span></div>
+  </div>
+
+  <h3>Example: opening the Projects page</h3>
+  <ol class="steps">
+    <li>User clicks <b>Projects</b> in the sidebar. React Router renders <span class="muted">ProjectsPage</span>.</li>
+    <li>The page calls a hook — <span class="muted">useListProjectsQuery(filters)</span>.</li>
+    <li>RTK Query checks its <b>cache</b>. If the data is fresh it renders immediately and stops here.</li>
+    <li>Otherwise it calls <span class="muted">baseQuery</span>, which attaches <b>Authorization: Bearer &lt;access token&gt;</b> from the Redux store.</li>
+    <li>The browser sends <span class="muted">GET /api/projects</span>. Vercel rewrites it to the Render backend.</li>
+    <li>Express runs its middleware chain: <b>Helmet → CORS → JSON parser → cookie parser</b>.</li>
+    <li><b>requireAuth</b> verifies the JWT signature and expiry, then attaches <span class="muted">req.user</span>.</li>
+    <li>A <b>permission gate</b> runs (for example requireProjectCreate). MD bypasses all gates; other roles need the flag on their account.</li>
+    <li><b>Zod</b> parses the query string. Invalid input returns <b>400</b> before the database is touched.</li>
+    <li>The <b>service layer</b> (projectsService) holds the business logic and builds the query.</li>
+    <li><b>Drizzle ORM</b> turns that into SQL. If the user is a PD, a division filter is added so they only see their own division.</li>
+    <li>PostgreSQL returns rows; the service shapes them into clean JSON.</li>
+    <li>The route responds <span class="muted">{ items, total }</span>.</li>
+    <li>RTK Query stores the result under a <b>cache tag</b> (ProjectList) and the component re-renders with data.</li>
+    <li>Later, any create/update/delete <b>invalidates that tag</b>, so the list refetches automatically — no manual refresh code.</li>
+  </ol>
+
+  <h2>6. Login and session flow</h2>
+  <ol class="steps">
+    <li>User submits username and password to <span class="muted">POST /api/auth/login</span>.</li>
+    <li>The server finds the user and compares the password against the <b>bcrypt hash</b>.</li>
+    <li>On success it issues two tokens: a short-lived <b>access token</b> (JWT, 15 min) returned in the JSON body, and a long-lived <b>refresh token</b> (30 days) set as an <b>httpOnly cookie</b>.</li>
+    <li>The access token is kept in Redux memory — never in localStorage, so a script on the page cannot steal it.</li>
+    <li>When the access token expires, an API call returns <b>401</b>.</li>
+    <li>baseQuery catches that, calls <span class="muted">/api/auth/refresh</span> <b>once</b>, gets a new access token, and retries the original request automatically. The user notices nothing.</li>
+    <li>If the refresh itself is rejected, credentials are cleared and the user is sent to the login page.</li>
+  </ol>
+
+  <div class="callout">
+    <b>Nice detail to mention:</b> refresh tokens are <b>rotated</b> — each use issues a new one and retires the old.
+    Reuse of a retired token is treated as theft. A short grace window stops two browser tabs refreshing at the
+    same moment from logging each other out.
+  </div>
+
+  <h3>Standard error format</h3>
+  <p class="small">
+    Every failure returns the same shape, so the UI can handle errors in one place:<br>
+    <span class="muted">{ "error": { "code": "VALIDATION_ERROR", "message": "…", "details": { … } } }</span>
+  </p>
+</section>
+
+<!-- ================= PAGE 4 ================= -->
+<section class="page">
+  <h1>Modules, Database &amp; API</h1>
+  <p class="sub">How the data is organised and how the code is layered</p>
+
+  <h2>7. Backend layering</h2>
+  <div class="flow">
+    <div class="node"><span class="t">Route</span><span class="d">HTTP, auth gate,<br>Zod validation</span></div>
+    <div class="arrow">&#9654;</div>
+    <div class="node"><span class="t">Service</span><span class="d">Business rules,<br>permissions, audit</span></div>
+    <div class="arrow">&#9654;</div>
+    <div class="node"><span class="t">Drizzle / DB</span><span class="d">Type-safe SQL,<br>transactions</span></div>
+  </div>
+  <p class="small">
+    <b>Why it matters:</b> routes stay thin and contain no SQL; services can be unit-tested without starting a
+    web server; and the database layer can change without touching the API surface.
+  </p>
+
+  <h2>8. Database design (23 tables)</h2>
+  <table>
+    <tr><th>Group</th><th>Tables</th><th>Purpose</th></tr>
+    <tr><td class="k">Master data</td><td>region, division, district, sector, scheme</td><td>Fixed reference lists used in dropdowns.</td></tr>
+    <tr><td class="k">Core</td><td>project, project_scheme</td><td>The central project record and its many-to-many link to schemes.</td></tr>
+    <tr><td class="k">Project details</td><td>project_milestone, milestone_progress, cos_eot_item, management_action_item, geo_photo, project_funds_uc, pre_monsoon_item</td><td>Child records that hang off a project.</td></tr>
+    <tr><td class="k">Meetings</td><td>minutes_of_meeting, mom_action_point</td><td>Meeting notes and the actions agreed in them.</td></tr>
+    <tr><td class="k">Users &amp; security</td><td>app_user, user_division, refresh_token, password_reset_otp, password_reset_request</td><td>Accounts, division assignment, sessions and password recovery.</td></tr>
+    <tr><td class="k">Audit</td><td>audit_log, audit_log_change</td><td>One row per action, plus one row per changed field.</td></tr>
+  </table>
+  <p class="small">
+    <b>Views:</b> <span class="muted">v_pbg_expiry_alerts</span> and <span class="muted">v_om_status</span> are SQL views that
+    pre-compute “expiring within 30 days” lists, so the dashboard reads one simple query instead of calculating in the browser.
+    <b>Migrations</b> are numbered <span class="muted">.sql</span> files applied in order — the schema history is version-controlled.
+  </p>
+
+  <h2>9. API surface</h2>
+  <table>
+    <tr><td class="k">/api/auth</td><td>login, logout, refresh, me, forgot-password OTP, reset password</td></tr>
+    <tr><td class="k">/api/projects</td><td>list, read, create, update, delete, bulk Excel import, tender transfer; child routes for milestones, CoS/EoT, actions, photos</td></tr>
+    <tr><td class="k">/api/kpis</td><td>dashboard totals, scheme chart, PBG expiry alerts, O&amp;M status</td></tr>
+    <tr><td class="k">/api/lookups</td><td>sectors, divisions, regions, districts, schemes for dropdowns</td></tr>
+    <tr><td class="k">/api/users</td><td>user administration and permission flags</td></tr>
+    <tr><td class="k">/api/mom, /funds-uc, /pre-monsoon</td><td>Minutes of meeting, fund utilisation, pre-monsoon checklist</td></tr>
+    <tr><td class="k">/api/audit</td><td>Read the audit trail</td></tr>
+    <tr><td class="k">/api/uploads, /api/health</td><td>File uploads and a health check used for monitoring</td></tr>
+  </table>
+
+  <h2>10. Two features worth explaining in depth</h2>
+  <h3>Excel import</h3>
+  <ul>
+    <li>User downloads a template whose columns are generated from the same field list the API uses.</li>
+    <li>The filled file is parsed <b>in the browser</b> with ExcelJS and every row is checked.</li>
+    <li>Errors are shown per row. <b>If any row is invalid, nothing is imported</b> — it is all-or-nothing.</li>
+    <li>Valid rows are posted to the API, which <b>re-validates with the same Zod schema</b> and inserts them in one transaction.</li>
+  </ul>
+  <h3>Audit trail</h3>
+  <ul>
+    <li>Services record an audit entry whenever a record is created, updated or deleted.</li>
+    <li><span class="muted">audit_log</span> stores who, what and when; <span class="muted">audit_log_change</span> stores old and new values per field.</li>
+    <li>This makes the system defensible in a government review — every number can be traced back.</li>
+  </ul>
+</section>
+
+<!-- ================= PAGE 5 ================= -->
+<section class="page">
+  <h1>Security, Deployment &amp; Likely Questions</h1>
+  <p class="sub">The last page to revise before you present</p>
+
+  <h2>11. Security</h2>
+  <table>
+    <tr><td class="k">Password storage</td><td>Hashed with <b>bcrypt</b>. Plain passwords are never stored or logged.</td></tr>
+    <tr><td class="k">Authentication</td><td>Short-lived <b>JWT access token</b> in memory + rotating <b>refresh token</b> in an httpOnly cookie.</td></tr>
+    <tr><td class="k">Token theft defence</td><td>Refresh tokens rotate on every use; reuse of an old token is detected and the chain is revoked.</td></tr>
+    <tr><td class="k">Authorisation (RBAC)</td><td>Four roles — <b>MD, Admin, PD, Viewer</b> — plus per-user flags for create / update / delete. MD bypasses all flags.</td></tr>
+    <tr><td class="k">Data scoping</td><td>A <b>PD only sees their own division</b>. Requests for other divisions return 404, so the existence of other data is not leaked.</td></tr>
+    <tr><td class="k">Input validation</td><td><b>Zod</b> validates every request at the API edge — bad data is rejected with 400 before reaching the database.</td></tr>
+    <tr><td class="k">HTTP hardening</td><td><b>Helmet</b> security headers and a <b>CORS allowlist</b> of permitted origins.</td></tr>
+    <tr><td class="k">Rate limiting</td><td><b>Upstash Redis</b> limits login attempts and uploads to slow brute-force attacks.</td></tr>
+    <tr><td class="k">Accountability</td><td>Full audit log of every change, with field-level detail.</td></tr>
+  </table>
+  <p class="small">
+    <b>Important point to make:</b> hiding a button in the UI is only cosmetic. Every rule is enforced again on the
+    server, because the API is what actually protects the data.
+  </p>
+
+  <h2>12. Deployment</h2>
+  <table>
+    <tr><td class="k">Frontend</td><td><b>Vercel</b> — auto-deploys on every push to <span class="muted">main</span>. Live at <span class="muted">buidco.vercel.app</span>.</td></tr>
+    <tr><td class="k">Backend</td><td><b>Render</b> — runs the compiled Express server. Reached through a Vercel rewrite of <span class="muted">/api/*</span>.</td></tr>
+    <tr><td class="k">Database</td><td><b>PostgreSQL</b> — a managed cloud Postgres instance in production; a local Postgres server for development.</td></tr>
+    <tr><td class="k">Config</td><td>All secrets come from environment variables — nothing sensitive is committed to git.</td></tr>
+  </table>
+  <div class="callout">
+    <b>Known limitation, good to admit:</b> the backend runs on Render's free tier, which sleeps after about
+    15 minutes idle. The first request then takes roughly 35 seconds. Fix: a scheduled ping to keep it warm,
+    or a paid instance that never sleeps.
+  </div>
+
+  <h2>13. Questions you may be asked</h2>
+  <div class="qa"><span class="q">Why route API calls through Vercel instead of calling Render directly?</span>
+    <span class="a"> — It makes the call same-origin, so there is no CORS preflight, cookies work naturally, and the backend URL stays hidden.</span></div>
+  <div class="qa"><span class="q">Why two tokens instead of one?</span>
+    <span class="a"> — The access token is short-lived, so a stolen one is useless quickly. The refresh token is httpOnly, so JavaScript cannot read it.</span></div>
+  <div class="qa"><span class="q">Where is role-based access actually enforced?</span>
+    <span class="a"> — In backend middleware. The UI also hides controls, but that is only for convenience; the server is the real gate.</span></div>
+  <div class="qa"><span class="q">Why Drizzle ORM and not raw SQL or Prisma?</span>
+    <span class="a"> — It is type-safe and lightweight, reads close to SQL, and its migrations are plain .sql files we can review.</span></div>
+  <div class="qa"><span class="q">How do you stop bad data getting in?</span>
+    <span class="a"> — Zod validates at the API edge, and the Excel import reuses the very same schema, so bulk and manual entry obey identical rules.</span></div>
+  <div class="qa"><span class="q">How are the dashboard numbers calculated?</span>
+    <span class="a"> — With SQL aggregates and database views, not in the browser. That keeps it fast and consistent for everyone.</span></div>
+  <div class="qa"><span class="q">What happens if two tabs refresh the session at once?</span>
+    <span class="a"> — Token rotation has a short grace window, so parallel refreshes do not log the user out.</span></div>
+  <div class="qa"><span class="q">How is the project tested?</span>
+    <span class="a"> — 101 Vitest unit tests, Playwright end-to-end tests, and an automated audit suite that captures before/after evidence.</span></div>
+  <div class="qa"><span class="q">How would you scale this?</span>
+    <span class="a"> — Database indexes on foreign keys are already in place; next steps are connection pooling, cached KPI queries, and a paid always-on backend.</span></div>
+  <div class="qa"><span class="q">What was the hardest part?</span>
+    <span class="a"> — Session handling. Users were being logged out when a request merely timed out, so we separated “server said no” from “server did not answer” and only ended the session for the first.</span></div>
+</section>
