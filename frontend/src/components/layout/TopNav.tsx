@@ -8,12 +8,9 @@ import { UtilityNavCluster } from './UtilityNav';
 interface TopNavProps {
   /** Opens the mobile sidebar drawer (< lg only). */
   onOpenMobileNav: () => void;
-  /** Opens the KPI reference guide drawer (state lives in AppShell so both
-   *  the desktop TopNav button and the mobile drawer's copy can trigger it). */
-  onOpenKpiGuide: () => void;
 }
 
-export function TopNav({ onOpenMobileNav, onOpenKpiGuide }: TopNavProps): JSX.Element {
+export function TopNav({ onOpenMobileNav }: TopNavProps): JSX.Element {
   return (
     <header className="sticky top-0 z-50 border-b border-[#E5E7EB] bg-white shadow-[0_1px_5px_rgba(0,0,0,0.07)]">
       {/* Row 1 — hamburger (mobile) · brand · utility tabs · audit · user pill.
@@ -42,7 +39,6 @@ export function TopNav({ onOpenMobileNav, onOpenKpiGuide }: TopNavProps): JSX.El
         </div>
 
         <UtilityNavCluster
-          onOpenKpiGuide={onOpenKpiGuide}
           className="ml-auto hidden flex-shrink-0 items-center gap-1.5 lg:flex"
         />
 

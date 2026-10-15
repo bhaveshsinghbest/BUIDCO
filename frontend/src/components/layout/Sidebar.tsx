@@ -13,11 +13,13 @@ import {
   LayoutDashboard,
   Map,
   Tag,
+  Users,
   Wallet,
   X,
 } from 'lucide-react';
 import { useAppSelector } from '../../app/hooks';
 import { selectCurrentUser } from '../../features/auth/authSlice';
+import { RoleGate } from '../auth/RoleGate';
 import { cn } from '../../lib/utils';
 import type { UserRole } from '../../types/api';
 import { NavClock } from './NavClock';
@@ -68,12 +70,10 @@ interface Props {
   /** True while the Tender Dashboard panel is open. It has no route of its
    *  own, so the router cannot derive this — AppShell owns the state. */
   tenderOpen: boolean;
-  /** Opens the KPI reference guide drawer (mobile copy of TopNav's button). */
-  onOpenKpiGuide: () => void;
 }
 
 export function Sidebar({
-  collapsed, onToggleCollapsed, mobileOpen, onCloseMobile, onOpenTenderDashboard, tenderOpen, onOpenKpiGuide,
+  collapsed, onToggleCollapsed, mobileOpen, onCloseMobile, onOpenTenderDashboard, tenderOpen,
 }: Props): JSX.Element {
   const currentUser = useAppSelector(selectCurrentUser);
   const role = currentUser?.role;
@@ -214,6 +214,19 @@ export function Sidebar({
                 }}
               />
             </li>
+            <RoleGate allow={['MD', 'Admin', 'PD']}>
+              <li>
+                <SidebarLink
+                  to="/users"
+                  label="User Management"
+                  Icon={Users}
+                  collapsed={collapsed}
+                  end={false}
+                  onNavigate={onCloseMobile}
+                  forceInactive={tenderOpen}
+                />
+              </li>
+            </RoleGate>
           </ul>
 
           {/* Quick Actions — TopNav's utility pills/KPI Guide/Audit Trail/
@@ -225,7 +238,6 @@ export function Sidebar({
             </div>
             <UtilityNavCluster
               onNavigate={onCloseMobile}
-              onOpenKpiGuide={onOpenKpiGuide}
               className="flex flex-col items-stretch gap-1.5"
             />
           </div>

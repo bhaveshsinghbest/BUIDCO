@@ -11,7 +11,6 @@ import {
 import { useInactivityLogout } from '../../hooks/useInactivityLogout';
 import { MdSchemeSummaryModal } from '../md/MdSchemeSummaryModal';
 import { TenderDashboardModal } from '../tender/TenderDashboardModal';
-import { KpiGuideDrawer } from './KpiGuideDrawer';
 import { Sidebar } from './Sidebar';
 import { TopNav } from './TopNav';
 
@@ -36,9 +35,6 @@ export function AppShell(): JSX.Element {
   const [collapsed, setCollapsed] = useState<boolean>(() => loadCollapsed());
   const [mobileOpen, setMobileOpen] = useState<boolean>(false);
   const [tenderOpen, setTenderOpen] = useState<boolean>(false);
-  // Lifted out of TopNav so the mobile Sidebar drawer can also open the guide
-  // (utility pills move into the drawer below the `lg` breakpoint).
-  const [kpiOpen, setKpiOpen] = useState<boolean>(false);
   const location = useLocation();
 
   // Auto-close the mobile drawer whenever the user navigates. On desktop the
@@ -129,7 +125,6 @@ export function AppShell(): JSX.Element {
             setTenderOpen(false);
             setMobileOpen(true);
           }}
-          onOpenKpiGuide={() => setKpiOpen(true)}
         />
         <div className="flex flex-1">
           <Sidebar
@@ -139,7 +134,6 @@ export function AppShell(): JSX.Element {
             onCloseMobile={() => setMobileOpen(false)}
             onOpenTenderDashboard={() => setTenderOpen(true)}
             tenderOpen={tenderOpen}
-            onOpenKpiGuide={() => setKpiOpen(true)}
           />
           <main className="min-w-0 flex-1 px-3 py-4 sm:px-4 sm:py-6">
             <div className="mx-auto max-w-[1400px]">
@@ -156,7 +150,6 @@ export function AppShell(): JSX.Element {
         open={tenderOpen}
         onClose={() => setTenderOpen(false)}
       />
-      <KpiGuideDrawer open={kpiOpen} onClose={() => setKpiOpen(false)} />
     </div>
   );
 }
