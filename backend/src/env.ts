@@ -16,6 +16,20 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
 
+  /**
+   * Injected automatically by Render — the service's own public URL. Absent
+   * everywhere else, which is exactly how the keep-alive ping decides whether
+   * it is running on a host that suspends idle instances. Never set by hand.
+   */
+  RENDER_EXTERNAL_URL: z.string().url().optional(),
+
+  /**
+   * Escape hatch for the keep-alive ping (see lib/keepAlive.ts). Set to
+   * "off" once the API moves to an always-on plan, where self-pinging is
+   * pointless and only burns instance hours.
+   */
+  KEEP_ALIVE: z.enum(['on', 'off']).default('on'),
+
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
 
   JWT_ACCESS_SECRET: z.string().min(32, 'JWT_ACCESS_SECRET must be at least 32 characters'),

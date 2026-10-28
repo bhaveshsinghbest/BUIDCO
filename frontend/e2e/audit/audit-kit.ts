@@ -113,10 +113,13 @@ export function forgetCreated(projectId: string): void {
  * app on an explicit MD sign-in (authSlice.openMdBriefing) and would other-
  * wise cover the nav in every screenshot.
  */
-export async function signIn(page: Page): Promise<void> {
+export async function signIn(
+  page: Page,
+  as: { username: string; password: string } = AUDIT_USER,
+): Promise<void> {
   await page.goto('/login');
-  await page.getByLabel('Username').fill(AUDIT_USER.username);
-  await page.getByLabel('Password').fill(AUDIT_USER.password);
+  await page.getByLabel('Username').fill(as.username);
+  await page.getByLabel('Password').fill(as.password);
   await page.getByRole('button', { name: 'Sign in' }).click();
   await page.waitForURL((url) => !url.pathname.endsWith('/login'), { timeout: 45_000 });
 

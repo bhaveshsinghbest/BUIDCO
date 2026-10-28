@@ -103,6 +103,16 @@ export const vPbgExpiryAlerts = pgView('v_pbg_expiry_alerts', {
   daysLeft: integer('days_left'),
 }).existing();
 
+/** Insurance expiry alerts — same shape and window as v_pbg_expiry_alerts. */
+export const vInsuranceExpiryAlerts = pgView('v_insurance_expiry_alerts', {
+  projectId: text('project_id').notNull(),
+  projectName: varchar('project_name', { length: 300 }),
+  districtId: integer('district_id'),
+  city: varchar('city', { length: 100 }),
+  insuranceExpiryDate: date('insurance_expiry_date'),
+  daysLeft: integer('days_left'),
+}).existing();
+
 export const vOmStatus = pgView('v_om_status', {
   projectId: text('project_id').notNull(),
   projectName: varchar('project_name', { length: 300 }),

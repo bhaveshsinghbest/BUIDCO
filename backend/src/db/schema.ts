@@ -140,6 +140,15 @@ export const project = pgTable(
     pbgAmountCr: numeric('pbg_amount_cr', { precision: 12, scale: 2 }),
     pbgExpiryDate: date('pbg_expiry_date'),
     pbgIssuingBank: varchar('pbg_issuing_bank', { length: 120 }),
+
+    /* Insurance — mirrors the PBG block above field for field
+     * (bhaveshTask.md Task 3). All optional: a project with no policy on
+     * record reads NULL and raises no alert. */
+    insurancePolicyNo: varchar('insurance_policy_no', { length: 80 }),
+    insurer: varchar('insurer', { length: 120 }),
+    insuredAmountCr: numeric('insured_amount_cr', { precision: 12, scale: 2 }),
+    insuranceStartDate: date('insurance_start_date'),
+    insuranceExpiryDate: date('insurance_expiry_date'),
     emdAmountCr: numeric('emd_amount_cr', { precision: 12, scale: 2 }),
     emdRefNumber: varchar('emd_ref_number', { length: 80 }),
     emdDate: date('emd_date'),

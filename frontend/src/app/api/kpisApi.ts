@@ -10,6 +10,7 @@ import type {
   OmStatusRow,
   OutstandingGapRow,
   OverviewKpis,
+  InsuranceExpiryAlert,
   PbgExpiryAlert,
   ScheduleVsActual,
   DivisionSummaryRow,
@@ -47,6 +48,10 @@ export const kpisApi = api.injectEndpoints({
     }),
     getPbgExpiryAlerts: build.query<ItemsResponse<PbgExpiryAlert>, void>({
       query: () => 'kpis/pbg-expiry-alerts',
+      providesTags: ['Kpis'],
+    }),
+    getInsuranceExpiryAlerts: build.query<ItemsResponse<InsuranceExpiryAlert>, void>({
+      query: () => 'kpis/insurance-expiry-alerts',
       providesTags: ['Kpis'],
     }),
     getOmStatus: build.query<ItemsResponse<OmStatusRow>, void>({
@@ -115,6 +120,7 @@ export const {
   useGetStageBucketsQuery,
   useGetWorkTypeCountsQuery,
   useGetFinancialSecuritiesQuery,
+  useGetInsuranceExpiryAlertsQuery,
   useGetPbgExpiryAlertsQuery,
   useGetOmStatusQuery,
   useGetOmExpiryAlertsQuery,

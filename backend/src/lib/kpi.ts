@@ -36,6 +36,7 @@ import {
   vOutstandingGaps,
   vOverviewKpis,
   vPbgExpiryAlerts,
+  vInsuranceExpiryAlerts,
   vProjectDelayStatus,
   vProjectPhysicalHistory,
   vRegionSummary,
@@ -340,6 +341,60 @@ export async function getPbgExpiryAlerts(
     districtId: r.district_id,
     city: r.city,
     pbgExpiryDate: r.pbg_expiry_date,
+    daysLeft: r.days_left,
+  }));
+}
+
+/**
+ * Insurance expiry alerts — the insurance twin of getPbgExpiryAlerts.
+ *
+ * Identical in every respect that matters: same 0..30 day window, same
+ * division scoping for PDs, same row shape. Kept as a separate function
+ * rather than parameterising the PBG one, because the two read from
+ * different views and collapsing them would couple two independent
+ * business rules that may yet diverge.
+ */
+export interface InsuranceExpiryAlert {
+  projectId: string;
+  projectName: string | null;
+  districtId: number | null;
+  city: string | null;
+  insuranceExpiryDate: string | null;
+  daysLeft: number | null;
+}
+
+export async function getInsuranceExpiryAlerts(
+  divisionId: number | null = null,
+): Promise<InsuranceExpiryAlert[]> {
+  if (divisionId === null) {
+    const rows = await db.select().from(vInsuranceExpiryAlerts);
+    return rows.map((r) => ({
+      projectId: r.projectId,
+      projectName: r.projectName ?? null,
+      districtId: r.districtId ?? null,
+      city: r.city ?? null,
+      insuranceExpiryDate: r.insuranceExpiryDate ?? null,
+      daysLeft: r.daysLeft ?? null,
+    }));
+  }
+  const result = await db.execute(sql`
+    SELECT project_id, project_name, district_id, city, insurance_expiry_date,
+           (insurance_expiry_date - CURRENT_DATE) AS days_left
+    FROM project
+    WHERE insurance_expiry_date IS NOT NULL
+      AND (insurance_expiry_date - CURRENT_DATE) BETWEEN 0 AND 30
+      AND division_id = ${divisionId}
+    ORDER BY days_left
+  `) as unknown as Rows<{
+    project_id: string; project_name: string | null; district_id: number | null;
+    city: string | null; insurance_expiry_date: string | null; days_left: number | null;
+  }>;
+  return result.rows.map((r) => ({
+    projectId: r.project_id,
+    projectName: r.project_name,
+    districtId: r.district_id,
+    city: r.city,
+    insuranceExpiryDate: r.insurance_expiry_date,
     daysLeft: r.days_left,
   }));
 }

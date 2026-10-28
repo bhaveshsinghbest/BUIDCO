@@ -40,6 +40,8 @@ const FIXED_INPUT_KEYS = new Set<string>([
   'contractValueCr', 'mobAdvanceIssuedCr', 'mobAdvanceRecoveredCr',
   'advanceOutstandingCr', 'retentionMoneyHeldCr',
   'pbgNumber', 'pbgAmountCr', 'pbgExpiryDate', 'pbgIssuingBank',
+  'insurancePolicyNo', 'insurer', 'insuredAmountCr',
+  'insuranceStartDate', 'insuranceExpiryDate',
   'emdAmountCr', 'emdRefNumber', 'emdDate',
   'totalPaymentsCr', 'lastPaymentDate', 'lastRaBillNo',
 ]);
@@ -59,6 +61,7 @@ const NUMERIC_KEYS = [
   'advanceOutstandingCr',
   'retentionMoneyHeldCr',
   'pbgAmountCr',
+  'insuredAmountCr',
   'emdAmountCr',
   'totalPaymentsCr',
   'fundReceivedCr',

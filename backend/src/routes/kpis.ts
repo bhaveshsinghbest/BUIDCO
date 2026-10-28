@@ -63,6 +63,14 @@ kpisRouter.get('/pbg-expiry-alerts', async (req, res, next) => {
   }
 });
 
+kpisRouter.get('/insurance-expiry-alerts', async (req, res, next) => {
+  try {
+    res.json({ items: await kpi.getInsuranceExpiryAlerts(sessionDivisionId(req)) });
+  } catch (err) {
+    next(err);
+  }
+});
+
 kpisRouter.get('/om-status', async (req, res, next) => {
   try {
     res.json({ items: await kpi.getOmStatus(sessionDivisionId(req)) });

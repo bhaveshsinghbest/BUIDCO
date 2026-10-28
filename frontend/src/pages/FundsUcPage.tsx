@@ -16,7 +16,7 @@ import { Card, CardContent } from '../components/ui/card';
 import { Skeleton } from '../components/ui/skeleton';
 import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../components/ui/ColumnFilter';
 import { formatCurrencyCr, formatDate, formatPercent } from '../lib/formatters';
-import { fundsUcStatusOf } from '../lib/fundsUc';
+import { fundsUcStatusOf, sharePercentsOf } from '../lib/fundsUc';
 import { cn } from '../lib/utils';
 import type { FundingSource, FundsUcCreatePayload, FundsUcEntry, FundsUcStatus } from '../types/api';
 
@@ -96,6 +96,7 @@ export function FundsUcPage(): JSX.Element {
           schemeNames,
           closingBalanceCr: closingBalanceOf(entry),
           status: fundsUcStatusOf(entry),
+          shares: sharePercentsOf(entry),
         };
       }),
     [items, projectsById, divisionNameById, schemeNameById],
@@ -320,10 +321,13 @@ export function FundsUcPage(): JSX.Element {
               No entries match the current filters.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            // Vertical scrolling happens inside this box rather than the
+            // page, which is what gives the header something to stick to.
+            // overflow-auto (not overflow-x-auto) keeps the horizontal scroll.
+            <div className="max-h-[70vh] overflow-auto">
               <table className="w-full min-w-[1280px] border-collapse text-[12.5px]">
                 <thead>
-                  <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280]">
+                  <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280] [&>th]:sticky [&>th]:top-0 [&>th]:z-20 [&>th]:bg-[#F9FAFB] [&>th]:shadow-[inset_0_-1px_0_#E5E7EB]">
                     <th className="px-3 py-2 text-left">#</th>
                     <th className="px-3 py-2 text-left">
                       <div>Project</div>
@@ -397,10 +401,10 @@ export function FundsUcPage(): JSX.Element {
                       <td className="px-3 py-2 text-[#374151]">{row.divisionName ?? '—'}</td>
                       <td className="px-3 py-2 text-[#374151]">{row.entry.fundingSource}</td>
                       <td className="px-3 py-2 text-right tabular-nums">
-                        {formatPercent(row.entry.centralSharePct, 0)}
+                        {formatPercent(row.shares.centralPct, 0)}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">
-                        {formatPercent(row.entry.stateSharePct, 0)}
+                        {formatPercent(row.shares.statePct, 0)}
                       </td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatCurrencyCr(row.entry.openingBalanceCr)}</td>
                       <td className="px-3 py-2 text-right tabular-nums">{formatCurrencyCr(row.entry.grantReceivedCr)}</td>

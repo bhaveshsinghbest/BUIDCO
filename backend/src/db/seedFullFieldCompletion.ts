@@ -60,7 +60,19 @@ import { replaceMilestones, upsertMonthlyProgress } from '../services/milestones
 import { createCosEot } from '../services/cosEotService.js';
 
 const SEED_ACTOR: AuditActor = { userId: null, username: 'system:seed-full-completion', role: 'MD' };
-const DUMMY_NAME_PATTERN = /delay test|package \d|smart city|augmentation|drainage|crematorium|sewerage/i;
+/**
+ * Which projects this pass is allowed to touch.
+ *
+ * Extended to cover the delay-category and water-supply/SWD dummy projects
+ * seeded after this script was first written — they were silently out of
+ * scope, which left 16 of 70 projects with empty Contract & Security, O&M
+ * and insurance blocks. Every name matched here is generated seed data.
+ *
+ * The guard still matters: this script only ever fills fields that are
+ * already empty, but it should never be pointed at genuine project records.
+ */
+const DUMMY_NAME_PATTERN =
+  /delay test|delay \d|package \d|smart city|augmentation|drainage|crematorium|sewerage|water supply|swd/i;
 
 function pick<T>(arr: readonly T[], seed: number): T {
   return arr[seed % arr.length]!;
@@ -99,6 +111,57 @@ function districtNameForDivision(divisionName: string): string {
 const BANKS = ['State Bank of India', 'Punjab National Bank', 'Bank of Baroda', 'Union Bank of India', 'Central Bank of India', 'UCO Bank'];
 const bankCodeOf = (bank: string): string =>
   ({ 'State Bank of India': 'SBI', 'Punjab National Bank': 'PNB', 'Bank of Baroda': 'BOB', 'Union Bank of India': 'UBI', 'Central Bank of India': 'CBI', 'UCO Bank': 'UCO' })[bank] ?? 'SBI';
+const INSURERS = [
+  'New India Assurance Co. Ltd.',
+  'Oriental Insurance Co. Ltd.',
+  'United India Insurance Co. Ltd.',
+  'National Insurance Co. Ltd.',
+  'ICICI Lombard General Insurance',
+  'Bajaj Allianz General Insurance',
+];
+const insurerCodeOf = (insurer: string): string =>
+  ({
+    'New India Assurance Co. Ltd.': 'NIA',
+    'Oriental Insurance Co. Ltd.': 'OIC',
+    'United India Insurance Co. Ltd.': 'UII',
+    'National Insurance Co. Ltd.': 'NIC',
+    'ICICI Lombard General Insurance': 'ICL',
+    'Bajaj Allianz General Insurance': 'BAG',
+  })[insurer] ?? 'NIA';
+
+/** Today as YYYY-MM-DD, so insurance expiries can be placed relative to it. */
+function todayIso(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * Days until a project's insurance expires.
+ *
+ * Deliberately spread across the alert spectrum rather than parked a year
+ * out like pbgExpiryDate is. A portfolio where every policy expires in 2027
+ * would leave the Insurance Alert column reading "—" on every row and the
+ * dashboard card permanently on "All clear" — technically filled, but it
+ * would demonstrate nothing and hide any regression in the alert logic.
+ *
+ * The distribution below is also what a real portfolio looks like: a long
+ * tail of healthy policies, a handful approaching renewal, and the odd one
+ * that has already lapsed.
+ *
+ *   seed % 20 == 0,1   ->  already expired   (-45 .. -3 days)
+ *   seed % 20 == 2,3   ->  red band          (1 .. 7 days)
+ *   seed % 20 == 4,5   ->  orange band       (8 .. 15 days)
+ *   seed % 20 == 6,7   ->  yellow band       (16 .. 30 days)
+ *   otherwise          ->  healthy           (45 .. 400 days)
+ */
+function insuranceExpiryOffset(seed: number): number {
+  const bucket = seed % 20;
+  if (bucket <= 1) return -3 - (seed % 43);
+  if (bucket <= 3) return 1 + (seed % 7);
+  if (bucket <= 5) return 8 + (seed % 8);
+  if (bucket <= 7) return 16 + (seed % 15);
+  return 45 + (seed % 356);
+}
+
 const OM_AGENCIES = ['M/s Kosi Infra Developers Pvt. Ltd.', 'M/s Sone Valley Construction Co.', 'M/s Mithila Builders & Engineers', 'M/s Magadh Civil Works Ltd.', 'M/s Ganga Tirhut Infra Pvt. Ltd.'];
 const DELAY_REASONS = [
   'Land acquisition proceedings pending with Revenue Department',
@@ -192,6 +255,37 @@ async function fillFinancialsUnconditional(p: ProjectRow): Promise<void> {
     patch.pbgAmountCr = round2(contractValue * 0.1);
     patch.pbgIssuingBank = bank;
     patch.pbgExpiryDate = addDays((patch.agreementDate as string), 365);
+  }
+
+  // Insurance — the works policy covering the contract. Filled independently
+  // of the agreement block above so a project that already had an agreement
+  // (and so skipped that branch) still gets a policy.
+  // Re-fills when ANY of the five is missing, not just the policy number, so
+  // a record left half-written by an earlier run gets completed rather than
+  // skipped. Values are derived from the seed, so rewriting is idempotent.
+  if (!p.insurancePolicyNo || !p.insurer || !p.insuredAmountCr || !p.insuranceExpiryDate) {
+    // >>> not >>: seedFromId returns a uint32, so a seed above 2^31 shifted
+    // with the signed operator goes negative, and `seed % arr.length` then
+    // yields a negative index — pick() returns undefined and the field is
+    // silently left NULL. That happened to 17 of 54 rows on the first run.
+    const insurer = pick(INSURERS, seed >>> 3);
+    const cover = contractValue ?? aaAmountCr * 0.9;
+    patch.insurancePolicyNo = `INS/${insurerCodeOf(insurer)}/2026/${5000 + (seed % 4000)}`;
+    patch.insurer = insurer;
+    // A works policy covers the full contract value, unlike the PBG above
+    // which is the customary 10% performance security.
+    patch.insuredAmountCr = round2(cover);
+    // Expiry first, then start anchored to it as a one-year policy.
+    //
+    // Deriving the start from the agreement date instead would break the
+    // project_insurance_dates_check constraint: expiry is placed relative to
+    // TODAY (so the alert bands land correctly), and a project whose
+    // agreement falls late in the year would end up with an expiry before
+    // its own start date. Anchoring start to expiry makes the ordering
+    // true by construction for every project, whatever its agreement date.
+    const expiry = addDays(todayIso(), insuranceExpiryOffset(seed));
+    patch.insuranceExpiryDate = expiry;
+    patch.insuranceStartDate = addDays(expiry, -365);
   }
   contractValue = contractValue ?? aaAmountCr * 0.9;
 

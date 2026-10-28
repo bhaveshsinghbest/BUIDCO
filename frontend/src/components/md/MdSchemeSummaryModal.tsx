@@ -6,6 +6,7 @@ import { useGetFundsUcByProjectQuery } from '../../app/api/fundsUcApi';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
 import { OmAlertCell } from '../projects/OmAlertCell';
+import { InsuranceAlertCell } from '../projects/InsuranceAlertCell';
 import { PbgAlertCell } from '../projects/PbgAlertCell';
 import { PriorityBadge } from '../projects/PriorityBadge';
 import { ProgressBar } from '../projects/ProgressBar';
@@ -108,7 +109,7 @@ type ColKey =
   | 'aaAmount' | 'agreementAmount' | 'physicalProgress'
   | 'financialProgressCr' | 'financialProgressPct'
   | 'expectedCompletion' | 'status' | 'contractType' | 'outstandingGap' | 'priority'
-  | 'pbgAlert' | 'omStatus' | 'remarks';
+  | 'pbgAlert' | 'insuranceAlert' | 'omStatus' | 'remarks';
 
 interface ColDef { key: ColKey; label: string; defaultOn: boolean; locked?: boolean }
 
@@ -133,6 +134,7 @@ const COLUMN_DEFS: ColDef[] = [
   { key: 'outstandingGap',      label: 'Outstanding Gap',       defaultOn: false },
   { key: 'priority',            label: 'Priority',              defaultOn: true  },
   { key: 'pbgAlert',            label: 'PBG Alert',             defaultOn: false },
+  { key: 'insuranceAlert',      label: 'Insurance Alert',       defaultOn: false },
   { key: 'omStatus',            label: 'O&M Status',            defaultOn: false },
   { key: 'remarks',             label: 'Remarks',               defaultOn: false },
 ];
@@ -1327,6 +1329,11 @@ function ProjectDetailsBody({
       case 'pbgAmountCr':    return { label: 'PBG Amount',       value: formatCurrencyCr(asDetail?.pbgAmountCr) };
       case 'pbgIssuingBank': return { label: 'PBG Issuing Bank', value: asDetail?.pbgIssuingBank ?? '—' };
       case 'pbgExpiryDate':  return { label: 'PBG Expiry Date',  value: formatDate(p.pbgExpiryDate) };
+      case 'insurancePolicyNo':   return { label: 'Insurance Policy No', value: asDetail?.insurancePolicyNo ?? '—' };
+      case 'insurer':             return { label: 'Insurer',             value: asDetail?.insurer ?? '—' };
+      case 'insuredAmountCr':     return { label: 'Insured Amount',      value: formatCurrencyCr(asDetail?.insuredAmountCr) };
+      case 'insuranceStartDate':  return { label: 'Insurance Start',     value: formatDate(asDetail?.insuranceStartDate) };
+      case 'insuranceExpiryDate': return { label: 'Insurance Expiry',    value: formatDate(p.insuranceExpiryDate) };
       case 'emdAmountCr':    return { label: 'EMD Amount',       value: formatCurrencyCr(asDetail?.emdAmountCr) };
       case 'emdRefNumber':   return { label: 'EMD Reference',    value: asDetail?.emdRefNumber ?? '—' };
       case 'emdDate':        return { label: 'EMD Date',         value: formatDate(asDetail?.emdDate) };
@@ -1510,6 +1517,7 @@ function renderCell(
     }
     case 'priority':            return <PriorityBadge priority={p.priority} />;
     case 'pbgAlert':            return <PbgAlertCell pbgExpiryDate={p.pbgExpiryDate} />;
+    case 'insuranceAlert':      return <InsuranceAlertCell insuranceExpiryDate={p.insuranceExpiryDate} />;
     case 'omStatus':            return (
       <OmAlertCell
         status={p.status}

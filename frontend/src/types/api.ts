@@ -255,6 +255,15 @@ export interface PbgExpiryAlert {
   daysLeft: number | null;
 }
 
+export interface InsuranceExpiryAlert {
+  projectId: string;
+  projectName: string | null;
+  districtId: number | null;
+  city: string | null;
+  insuranceExpiryDate: string | null;
+  daysLeft: number | null;
+}
+
 export interface OmStatusRow {
   projectId: string;
   projectName: string | null;
@@ -439,6 +448,8 @@ export interface ProjectListItem {
   expectedCompletionDate: string | null;
   expectedCompletionRaw: string | null;
   pbgExpiryDate: string | null;
+  /** Drives the Insurance Alert column, exactly as pbgExpiryDate drives PBG. */
+  insuranceExpiryDate: string | null;
   remark: string | null;
   omApplicable: boolean | null;
   omStartDate: string | null;
@@ -476,6 +487,11 @@ export interface ProjectDetail extends ProjectListItem {
   pbgNumber: string | null;
   pbgAmountCr: number | null;
   pbgIssuingBank: string | null;
+  insurancePolicyNo: string | null;
+  insurer: string | null;
+  insuredAmountCr: number | null;
+  insuranceStartDate: string | null;
+  insuranceExpiryDate: string | null;
   emdAmountCr: number | null;
   emdRefNumber: string | null;
   emdDate: string | null;
@@ -546,6 +562,11 @@ export interface ProjectUpsertPayload {
   pbgAmountCr?: number | null;
   pbgExpiryDate?: string | null;
   pbgIssuingBank?: string | null;
+  insurancePolicyNo?: string | null;
+  insurer?: string | null;
+  insuredAmountCr?: number | null;
+  insuranceStartDate?: string | null;
+  insuranceExpiryDate?: string | null;
   emdAmountCr?: number | null;
   emdRefNumber?: string | null;
   emdDate?: string | null;

@@ -10,7 +10,8 @@ import { ColumnsButton, ExportButton, useColumnVisibility, type ToolbarColumn } 
 import { useTableExport, type ExportColumn, type ExportFormat } from '../lib/tableExport';
 import { cn } from '../lib/utils';
 import { formatCurrencyCr, formatDate } from '../lib/formatters';
-import type { CosCategory } from '../types/api';
+import { CosEotDetailDialog } from '../components/cosEot/CosEotDetailDialog';
+import type { CosCategory, CosEotRecord } from '../types/api';
 
 const CATEGORIES: CosCategory[] = [
   'SCOPE ADDITION',
@@ -86,6 +87,12 @@ const COS_EXPORT_COLUMNS: ExportColumn<CosExportRow>[] = [
 
 export function CosEotPage(): JSX.Element {
   const [offset, setOffset] = useState(0);
+  // Task 5 — the CoS/EoT record whose detail dialog is open, if any.
+  // Task 5 — which CoS/EoT record has its detail dialog open. Held as an id,
+  // not the row object: after an edit saves, the list refetches and a
+  // snapshot would keep showing the pre-edit values. Resolving the id
+  // against the live query result means the dialog shows what was saved.
+  const [selectedCosId, setSelectedCosId] = useState<number | null>(null);
   const { data, isLoading, isFetching } = useListCosEotRecordsQuery({
     limit: PAGE_SIZE,
     offset,
@@ -124,6 +131,12 @@ export function CosEotPage(): JSX.Element {
       minMatches(colFilters.minEotDays, r.eotDaysGranted),
     );
   }, [data, colFilters]);
+
+  /** The open record, resolved fresh from the current page of results. */
+  const selectedRecord = useMemo<CosEotRecord | null>(
+    () => (data?.items ?? []).find((r) => r.cosId === selectedCosId) ?? null,
+    [data, selectedCosId],
+  );
 
   const totals = useMemo(() => {
     const raw = data?.items ?? [];
@@ -215,10 +228,17 @@ export function CosEotPage(): JSX.Element {
               No CoS/EoT records match the current filter.
             </div>
           ) : (
-            <div className="overflow-x-auto">
+            // Task 4 — vertical scrolling happens inside this box rather than
+            // the page, which is what gives the header something to stick to.
+            // overflow-auto (not overflow-x-auto) keeps the horizontal scroll.
+            <div className="max-h-[70vh] overflow-auto">
               <table className="w-full min-w-[1080px] border-collapse text-[12.5px]">
                 <thead>
-                  <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280]">
+                  {/* Opaque background so rows pass cleanly underneath, and an
+                      inset shadow because border-collapse drops a sticky
+                      cell's own border. align-top keeps the column filters
+                      lined up with their headings. */}
+                  <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280] [&>th]:sticky [&>th]:top-0 [&>th]:z-20 [&>th]:bg-[#F9FAFB] [&>th]:shadow-[inset_0_-1px_0_#E5E7EB]">
                     {isVisible('sno') ? <th className="px-3 py-2 text-left align-top">#</th> : null}
                     {isVisible('project') ? (
                       <th className="px-3 py-2 text-left align-top">
@@ -322,7 +342,17 @@ export function CosEotPage(): JSX.Element {
                       ) : null}
                       {isVisible('cosNumber') ? (
                         <td className="px-3 py-2 font-semibold text-[#7C3AED]">
-                          {r.cosNumber ?? '—'}
+                          {/* Task 5 — opens the detail dialog. A button, not a
+                              styled span, so it is reachable by keyboard and
+                              announced as actionable. */}
+                          <button
+                            type="button"
+                            onClick={() => setSelectedCosId(r.cosId)}
+                            title="View CoS / EoT details"
+                            className="rounded underline decoration-dotted underline-offset-2 transition-colors hover:text-[#5B21B6] hover:decoration-solid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7C3AED]"
+                          >
+                            {r.cosNumber ?? `CoS #${r.cosId}`}
+                          </button>
                         </td>
                       ) : null}
                       {isVisible('cosDate') ? <td className="px-3 py-2 text-[#374151]">{formatDate(r.cosDate)}</td> : null}
@@ -392,6 +422,15 @@ export function CosEotPage(): JSX.Element {
           </div>
         </CardContent>
       </Card>
+
+      {/* Task 5 — detail dialog for the clicked CoS #. Mounted at the page
+          level so it overlays the whole table rather than a single row. */}
+      {selectedRecord ? (
+        <CosEotDetailDialog
+          record={selectedRecord}
+          onClose={() => setSelectedCosId(null)}
+        />
+      ) : null}
     </article>
   );
 }

@@ -122,6 +122,11 @@ const KPI_SECTIONS: KpiGroup[] = [
         source: '/api/kpis/pbg-expiry-alerts',
         why: 'Drives the red banner at the top of /overview.',
       },
+      {
+        label: 'Insurance Expiry Alerts',
+        formula: 'WHERE insurance_expiry_date BETWEEN today AND today + 30 days',
+        source: '/api/kpis/insurance-expiry-alerts',
+      },
     ],
   },
   {

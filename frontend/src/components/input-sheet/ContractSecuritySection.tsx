@@ -17,6 +17,16 @@ interface Props {
 }
 
 export function ContractSecuritySection({ draft, setField, readOnly = false, num = '02' }: Props): JSX.Element {
+  // Task 7 — surfaced inline rather than only on save, and mirrors the
+  // CHECK constraint the migration added, so the form never submits a
+  // combination the database would reject.
+  const insuranceDateError =
+    draft.insuranceStartDate &&
+    draft.insuranceExpiryDate &&
+    draft.insuranceExpiryDate < draft.insuranceStartDate
+      ? 'Expiry date cannot be before the start date.'
+      : null;
+
   const contractValue = draft.contractValueCr ?? 0;
   const paidToDate = draft.totalPaymentsCr ?? 0;
   const balance = contractValue - paidToDate;
@@ -125,6 +135,49 @@ export function ContractSecuritySection({ draft, setField, readOnly = false, num
               value={draft.pbgIssuingBank}
               onChange={(v) => setField('pbgIssuingBank', v || null)}
               className="md:col-span-3"
+              disabled={readOnly}
+            />
+          </div>
+        </FieldGroup>
+
+        {/* Task 7 — insurance sits directly below PBG and mirrors its layout:
+            same 3-column grid, same field components, same readOnly gating.
+            Every field is optional, matching the nullable columns. */}
+        <FieldGroup label="Insurance">
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+            <FormField
+              label="Insurance Policy Number"
+              value={draft.insurancePolicyNo}
+              onChange={(v) => setField('insurancePolicyNo', v || null)}
+              disabled={readOnly}
+            />
+            <NumberField
+              label="Insured Amount"
+              suffix="₹ Cr"
+              value={draft.insuredAmountCr}
+              onChange={(v) => setField('insuredAmountCr', v)}
+              disabled={readOnly}
+            />
+            <FormField
+              label="Insurance Start Date"
+              type="date"
+              value={draft.insuranceStartDate}
+              onChange={(v) => setField('insuranceStartDate', v || null)}
+              disabled={readOnly}
+            />
+            <FormField
+              label="Insurance Expiry Date"
+              type="date"
+              value={draft.insuranceExpiryDate}
+              onChange={(v) => setField('insuranceExpiryDate', v || null)}
+              disabled={readOnly}
+              {...(insuranceDateError ? { hint: insuranceDateError } : {})}
+            />
+            <FormField
+              label="Insurer"
+              value={draft.insurer}
+              onChange={(v) => setField('insurer', v || null)}
+              className="md:col-span-2"
               disabled={readOnly}
             />
           </div>

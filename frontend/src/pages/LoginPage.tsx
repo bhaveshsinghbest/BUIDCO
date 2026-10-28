@@ -25,8 +25,14 @@ interface PdDivision {
  * The first attempt is already killed by the proxy at ~30s, so these add up
  * to roughly 80s of further cover — comfortably past the slowest boot we
  * have measured (56s).
+ *
+ * Sized from measurement, not guesswork. Observed cold boots across a month:
+ * 32.7s, 33.2s, 33.2s, 43.1s, 43.2s, 56.1s. The earlier 8/16/24 schedule gave
+ * only 48s of waiting, so a boot at the slow end of that range exhausted the
+ * retries and the user was told to try again — which is the failure this
+ * schedule exists to prevent. These six delays cover 135s of waiting.
  */
-const COLD_START_BACKOFF_MS = [8_000, 16_000, 24_000];
+const COLD_START_BACKOFF_MS = [5_000, 10_000, 15_000, 25_000, 35_000, 45_000];
 
 /**
  * A connection failure faster than this never reached anything, so it is
@@ -52,6 +58,18 @@ function isColdStartError(error: unknown, elapsedMs: number): boolean {
   };
   const httpStatus = typeof status === 'number' ? status : originalStatus;
 
+  // 429 is never retried, and this check must come FIRST.
+  //
+  // Render rate-limits requests that try to wake a hibernating free-tier
+  // service, answering 429 with a text/plain "Too Many Requests" body and
+  // an X-Render-Routing: hibernate-rate-limited header. Because the body is
+  // not JSON, fetchBaseQuery fails to parse it and reports PARSING_ERROR
+  // with originalStatus 429 — which the PARSING_ERROR branch below would
+  // otherwise treat as "still booting" and retry six times, hammering the
+  // very rate limiter that is already refusing us and making the wake take
+  // longer. Backing off immediately is the only correct response.
+  if (httpStatus === 429) return false;
+
   // Reached a proxy or gateway, which answered for an origin that isn't
   // up yet. Unambiguously worth retrying.
   if (
@@ -73,8 +91,20 @@ function isColdStartError(error: unknown, elapsedMs: number): boolean {
   return false;
 }
 
-/** Shown instead of an error while a cold-start retry is in flight. */
-function WakingNotice({ attempt }: { attempt: number }): JSX.Element {
+/**
+ * Shown instead of an error while a cold-start retry is in flight.
+ *
+ * Counts the seconds elapsed as well as the attempt number: a wait of up to
+ * two minutes with no visible movement reads as a hang, and the whole point
+ * of this notice is to stop a successful-but-slow sign-in looking broken.
+ */
+function WakingNotice({ attempt, since }: { attempt: number; since: number }): JSX.Element {
+  const [elapsed, setElapsed] = useState(() => Math.floor((Date.now() - since) / 1000));
+  useEffect(() => {
+    const id = setInterval(() => setElapsed(Math.floor((Date.now() - since) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [since]);
+
   return (
     <p
       className="flex items-center gap-2 rounded-xl border border-[#BFDBFE] bg-[#EFF6FF] px-4 py-2.5 text-xs font-medium text-[#1E3A5F]"
@@ -85,8 +115,9 @@ function WakingNotice({ attempt }: { attempt: number }): JSX.Element {
         className="h-3.5 w-3.5 flex-shrink-0 animate-spin rounded-full border-2 border-[#BFDBFE] border-t-[#1D4ED8]"
       />
       <span>
-        Waking the server — this can take up to a minute on the first sign-in of the day.
-        Retrying automatically ({attempt} of {COLD_START_BACKOFF_MS.length})…
+        Waking the server — the first sign-in after a quiet period can take up to two minutes.
+        Retrying automatically (attempt {attempt} of {COLD_START_BACKOFF_MS.length}, {elapsed}s
+        elapsed)… you do not need to do anything.
       </span>
     </p>
   );
@@ -109,10 +140,18 @@ export function LoginPage(): JSX.Element {
   // spurious logouts feel like a bug even once they were legitimate.
   const [timedOut] = useState<boolean>(() => takeLogoutReason() === 'inactivity');
 
+  /**
+   * Set when the mount-time probe finds the API unreachable, so the page can
+   * say so before a password is typed rather than after.
+   */
+  const [apiUnreachable, setApiUnreachable] = useState(false);
+
   // Which cold-start retry we're on (0 = not retrying). Drives the "waking
   // the server" notice and keeps the red error box hidden while we're still
   // trying — see attemptLogin below.
   const [wakeAttempt, setWakeAttempt] = useState(0);
+  /** When the current cold-start wait began, for the elapsed counter. */
+  const [wakeSince, setWakeSince] = useState(0);
   const aliveRef = useRef(true);
   useEffect(() => {
     aliveRef.current = true;
@@ -142,13 +181,49 @@ export function LoginPage(): JSX.Element {
     void fetch(`${env.VITE_API_BASE_URL}/health`, {
       method: 'GET',
       signal: controller.signal,
-    }).catch(() => {
-      /* warm-up is best-effort; the real error surfaces on submit. */
-    });
+    })
+      .then((res) => {
+        // A 5xx to /health is the proxy reporting that it could not reach the
+        // API at all. In development that means the backend process simply
+        // is not running, and saying so now is worth a great deal: the
+        // alternative is the user typing a correct password and being told
+        // sign-in failed, which sends them hunting for a credential problem
+        // that does not exist. Deliberately dev-only — in production a
+        // failed probe usually means a hibernating instance that the
+        // submit-time retry rides out, and crying "unreachable" there would
+        // be both wrong and alarming.
+        if (import.meta.env.DEV && !res.ok && res.status >= 500) {
+          setApiUnreachable(true);
+        }
+      })
+      .catch((err: unknown) => {
+        // Aborting on unmount is not a failure.
+        const aborted = err instanceof Error && err.name === 'AbortError';
+        if (import.meta.env.DEV && !aborted) setApiUnreachable(true);
+      });
     return () => {
       controller.abort();
     };
   }, []);
+
+  // Keep probing while the warning is up, so starting the backend clears it
+  // on its own. Without this the notice would outlive the problem and the
+  // user would have to know to reload.
+  useEffect(() => {
+    if (!apiUnreachable) return undefined;
+    const id = setInterval(() => {
+      void fetch(`${env.VITE_API_BASE_URL}/health`, { method: 'GET' })
+        .then((res) => {
+          if (res.ok) setApiUnreachable(false);
+        })
+        .catch(() => {
+          /* still down — leave the notice up. */
+        });
+    }, 5_000);
+    return () => {
+      clearInterval(id);
+    };
+  }, [apiUnreachable]);
 
   const redirectTo = (location.state as LocationState | null)?.from?.pathname ?? '/';
   if (authed) {
@@ -166,7 +241,7 @@ export function LoginPage(): JSX.Element {
    * the server. The boot it triggered continues in the background, so simply
    * trying again shortly after succeeds.
    *
-   * So: retry transport failures on a backoff that covers roughly 80s of
+   * So: retry transport failures on a backoff that covers roughly 135s of
    * boot time, and only show the red error box once those are exhausted.
    * A real rejection (401 wrong password, 429 rate limit) is never retried.
    */
@@ -192,6 +267,7 @@ export function LoginPage(): JSX.Element {
         return;
       }
       setWakeAttempt(retry + 1);
+      if (retry === 0) setWakeSince(startedAt);
       await new Promise((resolve) => setTimeout(resolve, nextDelay));
       if (!aliveRef.current) return;
       await attemptLogin(body, retry + 1);
@@ -279,6 +355,17 @@ export function LoginPage(): JSX.Element {
               </p>
             ) : null}
 
+            {apiUnreachable ? (
+              <p
+                className="mt-4 rounded-xl border border-[#FCD34D] bg-[#FFFBEB] px-4 py-2.5 text-xs font-medium text-[#92400E]"
+                role="status"
+              >
+                The API server is not responding, so no sign-in can succeed yet — this is not a
+                problem with your credentials. Start the backend (<code>npm run dev</code> in{' '}
+                <code>backend/</code>, port 4000); this notice clears itself once it is up.
+              </p>
+            ) : null}
+
             <form className="mt-8 space-y-4" onSubmit={onSubmit}>
               {pdDivisions ? (
                 // ── Step 2 — PD division picker ──
@@ -305,7 +392,7 @@ export function LoginPage(): JSX.Element {
                       ))}
                     </select>
                   </label>
-                  {waking ? <WakingNotice attempt={wakeAttempt} /> : null}
+                  {waking ? <WakingNotice attempt={wakeAttempt} since={wakeSince} /> : null}
                   {errorMessage ? (
                     <p
                       className="rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] px-4 py-2.5 text-xs font-medium text-[#B91C1C]"
@@ -357,7 +444,7 @@ export function LoginPage(): JSX.Element {
                       className={inputClassName}
                     />
                   </label>
-                  {waking ? <WakingNotice attempt={wakeAttempt} /> : null}
+                  {waking ? <WakingNotice attempt={wakeAttempt} since={wakeSince} /> : null}
                   {errorMessage ? (
                     <p
                       className="rounded-xl border border-[#FCA5A5] bg-[#FEF2F2] px-4 py-2.5 text-xs font-medium text-[#B91C1C]"
@@ -409,7 +496,20 @@ function extractErrorMessage(error: unknown): string | null {
   };
 
   if (anyErr.status === 401) return 'Invalid username or password.';
+
+  // Two very different things arrive as 429, and telling them apart matters:
+  //
+  //  - The API's own rate limiter answers JSON, and genuinely means the
+  //    account or IP has made too many sign-in attempts.
+  //  - The host rate-limits requests that wake a hibernating instance and
+  //    answers text/plain, which fetchBaseQuery surfaces as PARSING_ERROR
+  //    with originalStatus 429. The user has done nothing wrong, and
+  //    "too many attempts" would send them hunting for a problem with
+  //    their password that does not exist.
   if (anyErr.status === 429) return 'Too many attempts. Try again in a few minutes.';
+  if (anyErr.status === 'PARSING_ERROR' && anyErr.originalStatus === 429) {
+    return 'The server is starting up and is briefly refusing new requests. Please wait about a minute, then sign in again.';
+  }
 
   // Never reached the API: offline, DNS/TLS failure, or the request was
   // still in flight when the proxy gave up.
@@ -430,5 +530,20 @@ function extractErrorMessage(error: unknown): string | null {
     return 'The server is waking up. Please try again in a few seconds.';
   }
 
-  return anyErr.data?.error?.message ?? 'Sign-in failed. Please try again.';
+  // Any other 5xx that carries no API error envelope did not come from the
+  // API. It is the proxy in front of it reporting that it could not reach
+  // the origin at all: Vite answers 500 with an empty text/plain body when
+  // nothing is listening on the API port, and an empty body becomes
+  // `data: null`, so this used to fall through to the generic fallback and
+  // read as a rejected password — the one thing it is not. The API's own
+  // failures always carry { error: { code, message } }, so the presence of
+  // that envelope is what distinguishes the two.
+  const apiMessage = anyErr.data?.error?.message;
+  if (httpStatus !== undefined && httpStatus >= 500 && !apiMessage) {
+    return import.meta.env.DEV
+      ? 'Could not reach the API server. The backend does not appear to be running — start it on port 4000 and sign in again.'
+      : 'Could not reach the API server. It is not responding right now — please try again in a minute.';
+  }
+
+  return apiMessage ?? 'Sign-in failed. Please try again.';
 }

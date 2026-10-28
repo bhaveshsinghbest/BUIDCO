@@ -22,6 +22,8 @@ export type ProjectFieldKey =
   | 'mobAdvanceIssuedCr' | 'mobAdvanceRecoveredCr' | 'advanceOutstandingCr' | 'retentionMoneyHeldCr'
   | 'totalPaymentsCr' | 'lastPaymentDate' | 'lastRaBillNo'
   | 'pbgNumber' | 'pbgAmountCr' | 'pbgIssuingBank' | 'pbgExpiryDate'
+  | 'insurancePolicyNo' | 'insurer' | 'insuredAmountCr'
+  | 'insuranceStartDate' | 'insuranceExpiryDate'
   | 'emdAmountCr' | 'emdRefNumber' | 'emdDate'
   | 'omStartDate' | 'omEndDate' | 'omPeriodMonths' | 'omAgency' | 'omRemarks'
   | 'fundsUcSource' | 'fundsUcCentralShare' | 'fundsUcStateShare' | 'fundsUcOpeningBalance'
@@ -100,6 +102,11 @@ export const PROJECT_FIELD_GROUPS: ProjectFieldGroup[] = [
       { key: 'pbgAmountCr',    label: 'PBG Amount',       defaultOn: false },
       { key: 'pbgIssuingBank', label: 'PBG Issuing Bank', defaultOn: false },
       { key: 'pbgExpiryDate',  label: 'PBG Expiry Date',  defaultOn: false },
+      { key: 'insurancePolicyNo',   label: 'Insurance Policy No', defaultOn: false },
+      { key: 'insurer',             label: 'Insurer',             defaultOn: false },
+      { key: 'insuredAmountCr',     label: 'Insured Amount',      defaultOn: false },
+      { key: 'insuranceStartDate',  label: 'Insurance Start',     defaultOn: false },
+      { key: 'insuranceExpiryDate', label: 'Insurance Expiry',    defaultOn: false },
       { key: 'emdAmountCr',    label: 'EMD Amount',       defaultOn: false },
       { key: 'emdRefNumber',   label: 'EMD Reference',    defaultOn: false },
       { key: 'emdDate',        label: 'EMD Date',         defaultOn: false },

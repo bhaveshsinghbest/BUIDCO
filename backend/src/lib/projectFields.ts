@@ -121,6 +121,14 @@ export const createProjectSchema = z.object({
   pbgAmountCr: numericField(),
   pbgExpiryDate: dateField(),
   pbgIssuingBank: stringField(120),
+
+  /* Insurance (Task 5) — same field kinds as the PBG block above, so
+   * validation, nullability and error shape are identical. */
+  insurancePolicyNo: stringField(80),
+  insurer: stringField(120),
+  insuredAmountCr: numericField(),
+  insuranceStartDate: dateField(),
+  insuranceExpiryDate: dateField(),
   emdAmountCr: numericField(),
   emdRefNumber: stringField(80),
   emdDate: dateField(),

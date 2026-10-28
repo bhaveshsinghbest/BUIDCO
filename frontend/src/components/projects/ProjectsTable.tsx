@@ -16,7 +16,10 @@ import { Button } from '../ui/button';
 import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches, minMatches } from '../ui/ColumnFilter';
 import { DelayFilterDropdown } from '../ui/DelayFilterDropdown';
 import { OmAlertCell } from './OmAlertCell';
+import { InsuranceAlertCell } from './InsuranceAlertCell';
 import { PbgAlertCell } from './PbgAlertCell';
+import { CostOverrunBadge } from './CostOverrunBadge';
+import { COST_OVERRUN_FILTER_OPTIONS, costOverrunAmountCr, costOverrunStatus } from '../../lib/projectCost';
 import { PriorityBadge } from './PriorityBadge';
 import { ProgressBar } from './ProgressBar';
 import { ProjectProfileModal } from './ProjectProfileModal';
@@ -54,6 +57,14 @@ export interface LookupCtx {
 function pbgAlertExportLabel(row: ProjectListItem): string {
   if (!row.pbgExpiryDate) return '—';
   const days = daysBetween(new Date(), row.pbgExpiryDate);
+  if (days < 0 || days > 30) return '—';
+  return days === 0 ? 'Expires TODAY' : `Expiring in ${days}d`;
+}
+
+/** Mirrors InsuranceAlertCell's label logic in plain text, for export. */
+function insuranceAlertExportLabel(row: ProjectListItem): string {
+  if (!row.insuranceExpiryDate) return '—';
+  const days = daysBetween(new Date(), row.insuranceExpiryDate);
   if (days < 0 || days > 30) return '—';
   return days === 0 ? 'Expires TODAY' : `Expiring in ${days}d`;
 }
@@ -114,16 +125,6 @@ const COLUMNS: Column[] = [
     render: (r) => r.city ?? '—',
     sortValue: (r) => r.city,
     exportValue: (r) => r.city ?? '—',
-  },
-  {
-    key: 'district',
-    label: 'District',
-    minWidth: 110,
-    defaultVisible: true,
-    render: (r, _i, ctx) =>
-      r.districtId ? (ctx.districtById.get(r.districtId) ?? '—') : '—',
-    sortValue: (r) => r.districtId,
-    exportValue: (r, ctx) => (r.districtId ? (ctx.districtById.get(r.districtId) ?? '—') : '—'),
   },
   {
     key: 'division',
@@ -201,7 +202,7 @@ const COLUMNS: Column[] = [
         ? r.schemes.map((id) => ctx.schemeById.get(id) ?? `#${id}`).join(', ')
         : '—',
   },
-  // Note: 'division' + 'region' columns are inserted alongside 'district' above.
+  // Note: 'division' + 'region' columns are defined above, following 'city'.
   {
     key: 'projectStageV2',
     label: 'Stage',
@@ -249,6 +250,20 @@ const COLUMNS: Column[] = [
     render: (r) => <span className="tabular-nums">{formatCurrencyCr(r.agreementAmountCr)}</span>,
     sortValue: (r) => r.agreementAmountCr,
     exportValue: (r) => formatCurrencyCr(r.agreementAmountCr),
+  },
+  {
+    // Sits immediately after the two figures it compares, so the answer is
+    // next to the evidence for it.
+    key: 'costOverrun',
+    label: 'Cost Overrun',
+    minWidth: 120,
+    align: 'center',
+    defaultVisible: true,
+    render: (r) => <CostOverrunBadge status={costOverrunStatus(r)} amountCr={costOverrunAmountCr(r)} />,
+    // Sort by the amount, not the Yes/No label — "how far over" is the
+    // useful ordering, and it keeps N/A rows together at the bottom.
+    sortValue: (r) => costOverrunAmountCr(r),
+    exportValue: (r) => costOverrunStatus(r),
   },
   {
     key: 'physicalProgressPct',
@@ -357,6 +372,16 @@ const COLUMNS: Column[] = [
     render: (r) => <PbgAlertCell pbgExpiryDate={r.pbgExpiryDate} />,
     sortValue: (r) => r.pbgExpiryDate,
     exportValue: (r) => pbgAlertExportLabel(r),
+  },
+  {
+    key: 'insuranceAlert',
+    label: 'Insurance Alert',
+    minWidth: 150,
+    align: 'center',
+    defaultVisible: true,
+    render: (r) => <InsuranceAlertCell insuranceExpiryDate={r.insuranceExpiryDate} />,
+    sortValue: (r) => r.insuranceExpiryDate,
+    exportValue: (r) => insuranceAlertExportLabel(r),
   },
   {
     key: 'omAlert',
@@ -475,6 +500,17 @@ function pbgAlertCategory(row: ProjectListItem): string {
 }
 const PBG_ALERT_OPTIONS = ['Expired', 'Expires today', 'Expiring in 30 days', 'No alert', 'No PBG date'];
 
+/** Insurance Alert bucket — same thresholds as pbgAlertCategory. */
+function insuranceAlertCategory(row: ProjectListItem): string {
+  if (!row.insuranceExpiryDate) return 'No insurance date';
+  const days = daysBetween(new Date(), row.insuranceExpiryDate);
+  if (days < 0) return 'Expired';
+  if (days === 0) return 'Expires today';
+  if (days <= 30) return 'Expiring in 30 days';
+  return 'No alert';
+}
+const INSURANCE_ALERT_OPTIONS = ['Expired', 'Expires today', 'Expiring in 30 days', 'No alert', 'No insurance date'];
+
 /** O&M status bucket — same derivation omAlertExportLabel uses. */
 function omStatusCategory(row: ProjectListItem): string {
   if (row.status !== 'Completed' || !row.omApplicable || !row.omStartDate) return 'Not applicable';
@@ -531,11 +567,6 @@ function yearOptions(rows: ProjectListItem[], pick: (r: ProjectListItem) => stri
 const FILTER_CONFIG: Record<string, FilterConfig> = {
   projectName: { kind: 'text', getValue: (r) => r.projectName },
   city: { kind: 'text', getValue: (r) => r.city },
-  district: {
-    kind: 'select',
-    getValue: (r, ctx) => (r.districtId ? (ctx.districtById.get(r.districtId) ?? null) : null),
-    getOptions: (_ctx, lookups) => (lookups?.districts ?? []).map((d) => d.districtName),
-  },
   division: {
     kind: 'select',
     getValue: (r, ctx) => (r.divisionId ? (ctx.divisionById.get(r.divisionId)?.name ?? null) : null),
@@ -565,6 +596,13 @@ const FILTER_CONFIG: Record<string, FilterConfig> = {
   status: { kind: 'select', getValue: (r) => r.status, getOptions: () => STATUS_OPTIONS },
   remark: { kind: 'text', getValue: (r) => r.remark },
   priority: { kind: 'select', getValue: (r) => r.priority, getOptions: () => PRIORITY_OPTIONS },
+  // Only Yes/No are offered: "N/A" means the AA or agreement value is
+  // missing, which is absence of data rather than a status to filter on.
+  costOverrun: {
+    kind: 'select',
+    getValue: (r) => costOverrunStatus(r),
+    getOptions: () => [...COST_OVERRUN_FILTER_OPTIONS],
+  },
   nitNumber: { kind: 'text', getValue: (r) => r.nitNumber },
 
   // Task 6 — dropdown filters on the four columns that previously had none.
@@ -572,6 +610,11 @@ const FILTER_CONFIG: Record<string, FilterConfig> = {
     kind: 'select',
     getValue: (r) => pbgAlertCategory(r),
     getOptions: () => PBG_ALERT_OPTIONS,
+  },
+  insuranceAlert: {
+    kind: 'select',
+    getValue: (r) => insuranceAlertCategory(r),
+    getOptions: () => INSURANCE_ALERT_OPTIONS,
   },
   omAlert: {
     kind: 'select',

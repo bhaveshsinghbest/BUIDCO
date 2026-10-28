@@ -7,7 +7,9 @@ import { useListMgmtActionsForProjectQuery } from '../../app/api/mgmtActionsApi'
 import { useGetFundsUcByProjectQuery } from '../../app/api/fundsUcApi';
 import { Button } from '../ui/button';
 import { Skeleton } from '../ui/skeleton';
+import { costOverrunAmountCr } from '../../lib/projectCost';
 import { OmAlertCell } from './OmAlertCell';
+import { InsuranceAlertCell } from './InsuranceAlertCell';
 import { PbgAlertCell } from './PbgAlertCell';
 import { PriorityBadge } from './PriorityBadge';
 import { ProgressBar } from './ProgressBar';
@@ -44,6 +46,8 @@ type FieldKey =
   | 'retentionMoneyHeldCr' | 'totalPaymentsCr' | 'lastPaymentDate' | 'lastRaBillNo'
   // PBG & EMD card
   | 'pbgNumber' | 'pbgAmountCr' | 'pbgIssuingBank' | 'pbgExpiryDate'
+  | 'insurancePolicyNo' | 'insurer' | 'insuredAmountCr'
+  | 'insuranceStartDate' | 'insuranceExpiryDate'
   | 'emdAmountCr' | 'emdRefNumber' | 'emdDate'
   // O&M card
   | 'omStartDate' | 'omPeriodMonths' | 'omEndDate' | 'omAgency'
@@ -142,12 +146,17 @@ const FIELD_GROUPS: GroupDef[] = [
     ],
   },
   {
-    group: 'PBG & EMD Card',
+    group: 'PBG, Insurance & EMD Card',
     fields: [
       { key: 'pbgNumber',     label: 'PBG Number' },
       { key: 'pbgAmountCr',   label: 'PBG Amount' },
       { key: 'pbgIssuingBank',label: 'PBG Issuing Bank' },
       { key: 'pbgExpiryDate', label: 'PBG Expiry Date' },
+      { key: 'insurancePolicyNo',   label: 'Insurance Policy Number' },
+      { key: 'insurer',             label: 'Insurer' },
+      { key: 'insuredAmountCr',     label: 'Insured Amount' },
+      { key: 'insuranceStartDate',  label: 'Insurance Start Date' },
+      { key: 'insuranceExpiryDate', label: 'Insurance Expiry Date' },
       { key: 'emdAmountCr',   label: 'EMD Amount' },
       { key: 'emdRefNumber',  label: 'EMD Reference' },
       { key: 'emdDate',       label: 'EMD Date' },
@@ -315,11 +324,14 @@ export function ProjectProfileModal({ projectId, onClose }: Props): JSX.Element 
                               'On Schedule';
   const isTimeOverrun = timeOverrunDays !== null && timeOverrunDays > 0;
 
-  // Computed: Cost Overrun
-  const costOverrunVal =
-    project?.aaAmountCr != null && project?.agreementAmountCr != null
-      ? project.agreementAmountCr - project.aaAmountCr
-      : null;
+  // Computed: Cost Overrun — shared with the Projects table's Cost Overrun
+  // column so the snapshot box and the column always agree.
+  const costOverrunVal = project
+    ? costOverrunAmountCr({
+        aaAmountCr: project.aaAmountCr ?? null,
+        agreementAmountCr: project.agreementAmountCr ?? null,
+      })
+    : null;
   const costOverrunDisplay =
     costOverrunVal === null ? 'N/A' :
     costOverrunVal > 0     ? formatCurrencyCr(costOverrunVal) :
@@ -408,6 +420,11 @@ export function ProjectProfileModal({ projectId, onClose }: Props): JSX.Element 
     { label: 'PBG Amount',      value: formatCurrencyCr(project?.pbgAmountCr), fk: 'pbgAmountCr' },
     { label: 'PBG Issuing Bank',value: project?.pbgIssuingBank,               fk: 'pbgIssuingBank' },
     { label: 'PBG Expiry Date', value: formatDate(project?.pbgExpiryDate),     fk: 'pbgExpiryDate' },
+    { label: 'Insurance Policy No', value: project?.insurancePolicyNo,            fk: 'insurancePolicyNo' },
+    { label: 'Insurer',             value: project?.insurer,                      fk: 'insurer' },
+    { label: 'Insured Amount',      value: formatCurrencyCr(project?.insuredAmountCr), fk: 'insuredAmountCr' },
+    { label: 'Insurance Start',     value: formatDate(project?.insuranceStartDate),    fk: 'insuranceStartDate' },
+    { label: 'Insurance Expiry',    value: formatDate(project?.insuranceExpiryDate),   fk: 'insuranceExpiryDate' },
     { label: 'EMD Amount',      value: formatCurrencyCr(project?.emdAmountCr), fk: 'emdAmountCr' },
     { label: 'EMD Reference',   value: project?.emdRefNumber,                 fk: 'emdRefNumber' },
     { label: 'EMD Date',        value: formatDate(project?.emdDate),           fk: 'emdDate' },
@@ -801,6 +818,7 @@ export function ProjectProfileModal({ projectId, onClose }: Props): JSX.Element 
                       <FieldGrid fields={visPbg} />
                       <div className="mt-2">
                         <PbgAlertCell pbgExpiryDate={project.pbgExpiryDate} />
+                        <InsuranceAlertCell insuranceExpiryDate={project.insuranceExpiryDate} />
                       </div>
                     </FieldCard>
                   ) : null}

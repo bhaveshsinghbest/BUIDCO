@@ -1,194 +1,157 @@
-# Application Testing & Audit Documentation – Test Scenarios
+1-Analyze the Entire Project – Review the complete project and implement all required changes without affecting any existing functionality, responsiveness, or project-related features.
 
-## 0. Testing Safety, Data Protection & Cleanup Requirements
+2-## Complete End-to-End Software Testing & Production Readiness Command
 
-All testing must be performed in a **controlled manner without affecting, modifying, or compromising the existing application, existing project data, configurations, or live functionality**.
+### Phase 1 — Understand the Application
 
-### Testing Safety Requirements
+1. Analyze the complete codebase, including frontend, backend, database, APIs, authentication, authorization, configuration, integrations, and existing workflows.
+2. Identify all modules, pages, features, user roles, APIs, database tables, and major business workflows.
+3. Understand the expected behavior from the existing code, requirements, and UI.
+4. Do not remove, break, or unnecessarily modify any existing functionality.
 
-* Do not modify, delete, overwrite, or corrupt any existing production/actual project data.
-* Use **test/dummy data** wherever new records are required for testing.
-* Do not perform destructive operations on existing records unless specifically required for the test and a safe test record is being used.
-* Ensure that testing activities do not impact existing users, workflows, dashboards, KPIs, reports, or application functionality.
-* Before performing any CRUD, import, expiry, or project-creation test, ensure that the test data/records can be clearly identified as testing data.
-* Take the required **Before** screenshots before making any changes.
-* Take the required **After** screenshots immediately after completing the test.
-* Highlight the exact changes in the screenshots for audit evidence.
-* Verify that existing application data remains unaffected after testing.
+### Phase 2 — Unit Testing
 
-### Testing Data Cleanup
+5. Test individual functions, components, utilities, services, validations, and business logic.
+6. Identify missing or failing unit tests.
+7. Fix defects found during unit testing.
+8. Re-run all affected tests after fixes.
 
-After all testing activities and the final **Word testing/audit document** have been prepared and verified:
+### Phase 3 — Integration Testing
 
-1. Identify all **test files, dummy Excel files, temporary documents, screenshots, exported files, and other temporary testing artifacts created during the current testing session**.
-2. Remove/delete these temporary testing files after confirming that the required screenshots and evidence have been incorporated into the final Word document.
-3. Remove any temporary test records/data created specifically for testing, wherever applicable and safe to do so.
-4. **Do not delete or modify any existing/production application data.**
-5. Ensure that the application is left in the same valid operational state as before testing, except for documented permanent changes that are part of the approved application functionality.
-6. Verify that the final Word document contains all required screenshots and evidence **before deleting the temporary testing artifacts**.
-7. Retain only the final approved testing/audit documentation and any files specifically required for official records.
+9. Test frontend-to-backend communication.
+10. Test backend-to-database communication.
+11. Test API-to-API and external service integrations.
+12. Verify authentication, authorization, sessions, transactions, and data flow between modules.
+13. Fix and re-test all integration failures.
 
-> **Important:** The cleanup process must be performed carefully so that only files and data created specifically for the current testing activity are removed. Existing application files, production data, source code, configuration files, and genuine project records must not be deleted.
+### Phase 4 — Functional Testing
 
----
+14. Test every feature and module against its expected functionality.
+15. Test all buttons, links, forms, dropdowns, filters, search, sorting, pagination, calculations, validations, uploads, downloads, CRUD operations, status changes, and workflows.
+16. Test positive, negative, boundary, empty, invalid, and unexpected inputs.
+17. Verify that error messages and validation messages are correct and user-friendly.
+18. Ensure that existing functionality continues to work.
 
-# Scenario 1: Create New Projects Through Input Sheet
+### Phase 5 — UI/UX Testing
 
-### Objective
+19. Check every page and screen visually and functionally.
+20. Verify buttons, menus, cards, tables, forms, modals, navigation, spacing, alignment, text, icons, and loading/error/empty states.
+21. Verify that clickable elements actually perform the intended action.
+22. Check for broken layouts, overlapping elements, hidden content, inconsistent styling, and unnecessary UI changes.
 
-Verify that new projects can be successfully created through the **Input Sheet** and that all relevant dashboard/project statistics are updated correctly.
+### Phase 6 — API Testing
 
-### Tasks
+23. Test every available API endpoint.
+24. Verify HTTP methods, request parameters, request bodies, response structures, status codes, validation, authentication, authorization, error handling, and edge cases.
+25. Test unauthorized and invalid requests.
+26. Verify that APIs do not expose unnecessary or sensitive information.
 
-1. Capture screenshots of the application **before creating the projects**.
-2. Record the existing values for:
+### Phase 7 — Database Testing
 
-   * Total Projects
-   * Completed Projects
-   * In Progress Projects
-   * Not Started Projects
-   * Delayed Projects
-   * On Hold Projects
-   * Other applicable KPIs/status counts
-3. Create **3 test projects** through the Input Sheet using dummy/test data.
-4. Capture screenshots during/after the project creation process.
-5. Verify that the newly created projects are displayed correctly in the Project section.
-6. Verify that the relevant KPIs and project-status counts are updated.
-7. Capture **after-creation screenshots**.
-8. Highlight all changes between the Before and After screenshots.
-9. Document the expected result, actual result, and testing status.
-10. After completion of the overall testing and documentation, remove the temporary test projects if they were created solely for testing and can be safely removed.
+27. Test all important database operations: CREATE, READ, UPDATE, DELETE.
+28. Verify relationships, constraints, indexes, transactions, data validation, duplicate prevention, null handling, and data consistency.
+29. Verify that frontend and backend data exactly matches the database.
+30. Check migrations and ensure they do not unintentionally modify or delete existing production data.
 
-### Evidence Required
+### Phase 8 — Regression Testing
 
-* Before project creation screenshot
-* Input Sheet data-entry screenshot
-* After project creation screenshot
-* Updated Project section screenshot
-* Updated KPI/dashboard screenshot
-* Highlighted Before vs. After comparison
+31. Re-test all existing functionality after the new changes.
+32. Specifically test functionality that could be affected by the modified code.
+33. Compare important existing workflows before and after changes.
+34. Ensure that fixing one issue has not introduced another issue.
 
----
+### Phase 9 — Responsive & Compatibility Testing
 
-# Scenario 2: CRUD Testing for Existing Projects
+35. Test the application on desktop, tablet, and mobile screen sizes.
+36. Test different resolutions and orientations where applicable.
+37. Test major browsers such as Chrome, Edge, Firefox, and Safari where available.
+38. Check navigation, tables, forms, dashboards, buttons, menus, modals, and responsive layouts on all supported screen sizes.
+39. Ensure there is no horizontal scrolling or broken layout unless intentionally designed.
 
-### Objective
+### Phase 10 — Performance Testing
 
-Verify that existing projects support the required **Create, Read, Update, and Delete (CRUD)** operations without affecting genuine application data.
+40. Test page load time, API response time, database queries, large datasets, and important workflows.
+41. Identify slow API calls, inefficient queries, unnecessary frontend rendering, memory issues, and other performance bottlenecks.
+42. Test the application with realistic and high-volume data where possible.
+43. Fix performance issues that could affect production users.
+44. Re-test performance after optimization.
 
-### Tasks
+### Phase 11 — Security Testing
 
-1. Select an appropriate **test project/record** for CRUD testing.
-2. Capture the **Before** screenshot showing the existing project details.
-3. Perform the applicable CRUD operations:
+45. Test authentication and authorization.
+46. Verify that users cannot access pages, APIs, records, or actions they are not authorized to access.
+47. Test input validation and common vulnerabilities such as SQL injection, XSS, CSRF, insecure direct object references, broken access control, insecure file uploads, exposed secrets, and sensitive data leakage.
+48. Check environment variables, API keys, passwords, tokens, logs, and configuration for accidental exposure.
+49. Do not expose or print sensitive credentials while testing.
+50. Fix security vulnerabilities where possible and re-test them.
 
-   * **Create:** Create a test project, where applicable.
-   * **Read:** View and verify project information.
-   * **Update:** Modify selected test-project information.
-   * **Delete:** Delete the test project, where permitted.
-4. Capture screenshots before and after each relevant operation.
-5. Verify that updated information is correctly reflected throughout the application.
-6. Verify that deleted test records are removed correctly.
-7. Highlight the changes made in the screenshots.
-8. Document expected result, actual result, and testing status.
-9. Ensure that no genuine/production project is unintentionally modified or deleted.
+### Phase 12 — User Acceptance Testing (UAT)
 
----
+51. Test the application from the perspective of each major user role.
+52. Execute complete real-world business workflows from beginning to end.
+53. Verify that the application behaves according to the intended business process.
+54. Identify anything that technically works but would be confusing, incorrect, or impractical for an actual user.
 
-# Scenario 3: O&M and PBG Expiry Testing
+### Phase 13 — Smoke & Final Sanity Testing
 
-### Objective
+55. Create a clean production-like build.
+56. Verify that the application starts successfully.
+57. Verify frontend, backend, database, authentication, APIs, major pages, and critical workflows.
+58. Perform a final smoke test on all critical functionality.
+59. Re-test all previously fixed critical and high-priority issues.
 
-Verify the application's handling of **O&M and PBG expiry conditions**, including the application's behavior before and after expiry.
+### Defect Management Rules
 
-### Tasks
+For every issue found, record:
 
-1. Use a suitable test project with O&M and PBG expiry information.
-2. Capture the project status **before expiry**.
-3. Test the condition where the O&M/PBG is **1 day before expiry**.
-4. Capture the screenshot showing the application state one day before expiry.
-5. Verify:
+* Issue ID
+* Module/Page
+* Description
+* Steps to reproduce
+* Expected result
+* Actual result
+* Severity: Critical / High / Medium / Low
+* Root cause
+* Fix applied
+* Test performed after fix
+* Final status: Pass / Fail
 
-   * Expiry status
-   * Alerts/notifications
-   * Project indicators
-   * Dashboard/KPI changes
-   * Expiry-related remarks/highlighting
-6. Test the state **after the expiry date**.
-7. Capture the **After Expiry** screenshot.
-8. Compare the Before and After states.
-9. Highlight all changes in the screenshots.
-10. Document expected result, actual result, and testing status.
-11. Ensure that the testing does not alter genuine project expiry information.
+Do not simply report an issue if you can safely fix it. Fix the issue, then re-test it.
 
----
+### Important Rules
 
-# Scenario 4: Import Projects Through Excel Sheet
+* Do not assume that existing functionality works.
+* Do not test only the newly added features.
+* Test the complete application end-to-end.
+* Do not delete, disable, bypass, or weaken existing functionality merely to make tests pass.
+* Do not make unnecessary architectural changes.
+* Do not use fake test results.
+* Clearly distinguish between tests actually executed and tests that could not be executed because of missing tools, credentials, services, data, or environment access.
+* Never claim a test passed unless it was actually executed and verified.
+* Preserve existing data and functionality.
+* Before making database or production changes, clearly identify what will be changed and require explicit approval for destructive operations.
 
-### Objective
+### Final Production Readiness Report
 
-Verify that projects can be successfully imported through an **Excel file** and correctly reflected in the application's Project section.
+After completing all testing, provide a final report containing:
 
-### Tasks
+1. Total tests performed
+2. Tests passed
+3. Tests failed
+4. Tests blocked/not executable
+5. Critical issues
+6. High-priority issues
+7. Medium/Low issues
+8. Issues fixed
+9. Regression issues found
+10. Security vulnerabilities
+11. Performance findings
+12. Responsive/compatibility findings
+13. Remaining known issues
+14. Overall Production Readiness: **READY / READY WITH CONDITIONS / NOT READY**
 
-1. Prepare an Excel sheet containing **dummy/test project data**.
-2. Capture a screenshot of the Excel sheet showing the project records to be imported.
-3. Capture the application state **before importing** the Excel file.
-4. Import the Excel file into the application.
-5. Verify successful processing/import of the records.
-6. Navigate to the Project section.
-7. Verify that the imported projects are displayed correctly.
-8. Verify relevant project details and dashboard/KPI counts.
-9. Capture screenshots **after the import**.
-10. Highlight the newly imported projects and any KPI/status changes.
-11. Compare the Excel input data with the records displayed in the application.
-12. Document expected result, actual result, and testing status.
-13. After the Word document is finalized, remove the temporary Excel test file and test records, provided they were created solely for this testing activity.
+Only mark the application **READY** if all critical production workflows pass and there are no unresolved Critical or High-severity defects that could affect production operation, security, data integrity, or core business functionality.
 
----
+Do not stop after finding the first issue. Continue testing the entire application until the complete testing sequence has been executed.
 
-# Standard Documentation Format
 
-Each test scenario should follow the same audit-friendly structure:
-
-1. **Test Case ID**
-2. **Test Scenario**
-3. **Objective**
-4. **Pre-Conditions**
-5. **Test Data**
-6. **Steps Performed**
-7. **Before Testing – Screenshot**
-8. **Action/Change Performed**
-9. **After Testing – Screenshot**
-10. **Highlighted Changes**
-11. **Expected Result**
-12. **Actual Result**
-13. **Test Status – Pass/Fail**
-14. **Remarks/Observations**
-15. **Cleanup Confirmation**
-
-### Screenshot Requirements
-
-For every screenshot:
-
-* Clearly highlight the **specific field, project, KPI, status, alert, or record that changed**.
-* Use consistent highlighting/annotations.
-* Include relevant dates/timestamps wherever applicable.
-* Ensure screenshots are clear and readable.
-* Show **Before → Action → After** wherever applicable.
-* For import testing, show **Excel Source → Application Result**.
-* For expiry testing, show **Before Expiry → 1 Day Before Expiry → After Expiry**.
-* For CRUD testing, show the relevant **Before → Operation → After** state.
-
-### Final Audit Evidence
-
-The completed Word document should provide sufficient evidence that:
-
-* The application was tested using defined functional scenarios.
-* Testing was performed using controlled/test data.
-* Existing application data and functionality were protected.
-* Changes were verified through Before and After screenshots.
-* Relevant KPIs, project statuses, CRUD operations, expiry conditions, and import functionality were tested.
-* All significant changes were highlighted.
-* Temporary testing artifacts were cleaned up after the documentation was completed.
-* Existing/production application data was not unintentionally affected.

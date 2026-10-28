@@ -85,6 +85,11 @@ export interface ProjectDraft {
   pbgAmountCr: number | null;
   pbgExpiryDate: string | null;
   pbgIssuingBank: string | null;
+  insurancePolicyNo: string | null;
+  insurer: string | null;
+  insuredAmountCr: number | null;
+  insuranceStartDate: string | null;
+  insuranceExpiryDate: string | null;
   emdAmountCr: number | null;
   emdRefNumber: string | null;
   emdDate: string | null;
@@ -169,6 +174,11 @@ export const EMPTY_DRAFT: ProjectDraft = {
   pbgAmountCr: null,
   pbgExpiryDate: null,
   pbgIssuingBank: null,
+  insurancePolicyNo: null,
+  insurer: null,
+  insuredAmountCr: null,
+  insuranceStartDate: null,
+  insuranceExpiryDate: null,
   emdAmountCr: null,
   emdRefNumber: null,
   emdDate: null,

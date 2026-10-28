@@ -4,6 +4,7 @@ import { SchemeBarChart } from '../components/charts/SchemeBarChart';
 import { StatusDonut } from '../components/charts/StatusDonut';
 import { KpiGrid, KPI_FIELDS, KPI_STORAGE_KEY } from '../components/overview/KpiGrid';
 import { OmAlertsCard } from '../components/overview/OmAlertsCard';
+import { InsuranceAlertsCard } from '../components/overview/InsuranceAlertsCard';
 import { PbgAlertsCard } from '../components/overview/PbgAlertsCard';
 import { SectorSummaryCard } from '../components/overview/SectorSummaryCard';
 import { Button } from '../components/ui/button';
@@ -121,6 +122,7 @@ export function OverviewPage(): JSX.Element {
 
       <div className="grid gap-4 lg:grid-cols-2">
         <PbgAlertsCard />
+        <InsuranceAlertsCard />
         <OmAlertsCard />
       </div>
     </div>
