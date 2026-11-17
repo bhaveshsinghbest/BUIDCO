@@ -30,6 +30,7 @@
 
 import { inArray } from 'drizzle-orm';
 import { db, pool } from './client.js';
+import { assertDemoSeedingAllowed } from './seedGuard.js';
 import { project } from './schema.js';
 import { tenderSubStages, type TenderSubStage } from './enums.js';
 import type { AuditActor } from '../lib/audit.js';
@@ -54,6 +55,7 @@ const LOA_ISSUED: TenderSubStage = 'LoA Issued';
 const loaIndex = tenderSubStages.indexOf(LOA_ISSUED);
 
 async function main(): Promise<void> {
+  await assertDemoSeedingAllowed('seedAdvanceToAgreement');
   const rows = await db.select().from(project).where(inArray(project.projectName, [...TARGET_PROJECT_NAMES]));
   const found = new Map(rows.map((r) => [r.projectName, r]));
 

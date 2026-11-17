@@ -15,19 +15,27 @@ vi.mock('../services/authService.js', () => ({
   refresh: vi.fn(),
   logout: vi.fn(),
   getUserById: vi.fn(),
+  isSessionActive: vi.fn(async () => true),
+  isDemoLoginBlocked: vi.fn(() => false),
 }));
 
-vi.mock('../lib/rateLimit.ts', async () => {
-  // Rate limiter uses Upstash — force the no-op path for deterministic tests.
+const limiters = vi.hoisted(() => {
+  const allow = async () => ({ success: true, remaining: Infinity, reset: Date.now() });
+  return { allow, loginIp: vi.fn(allow), loginUser: vi.fn(allow) };
+});
+
+vi.mock('../lib/rateLimit.js', async () => {
+  // Deterministic limiters; the two login ones can be told to refuse.
   return {
-    loginLimiter: async () => ({ success: true, remaining: Infinity, reset: Date.now() }),
-    refreshLimiter: async () => ({ success: true, remaining: Infinity, reset: Date.now() }),
-    uploadLimiter: async () => ({ success: true, remaining: Infinity, reset: Date.now() }),
-    passwordResetLookupLimiter: async () => ({ success: true, remaining: Infinity, reset: Date.now() }),
-    passwordResetRequestLimiter: async () => ({ success: true, remaining: Infinity, reset: Date.now() }),
-    otpSendCooldownLimiter: async () => ({ success: true, remaining: Infinity, reset: Date.now() }),
-    otpSendLimiter: async () => ({ success: true, remaining: Infinity, reset: Date.now() }),
-    otpVerifyLimiter: async () => ({ success: true, remaining: Infinity, reset: Date.now() }),
+    loginLimiter: limiters.loginUser,
+    loginIpLimiter: limiters.loginIp,
+    refreshLimiter: limiters.allow,
+    uploadLimiter: limiters.allow,
+    passwordResetLookupLimiter: limiters.allow,
+    passwordResetRequestLimiter: limiters.allow,
+    otpSendCooldownLimiter: limiters.allow,
+    otpSendLimiter: limiters.allow,
+    otpVerifyLimiter: limiters.allow,
   };
 });
 
@@ -64,6 +72,8 @@ const successOutcome = {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  limiters.loginIp.mockImplementation(limiters.allow);
+  limiters.loginUser.mockImplementation(limiters.allow);
 });
 
 describe('POST /api/auth/login', () => {
@@ -137,6 +147,49 @@ describe('POST /api/auth/login', () => {
     expect(res.body.divisions).toHaveLength(2);
     expect(res.headers['set-cookie']).toBeUndefined();
   });
+
+  it('refresh cookie expires with the token inside it (S-15)', async () => {
+    const twoHours = 2 * 3600_000;
+    mockedLogin.mockResolvedValueOnce({
+      ...successOutcome,
+      refresh: { ...successOutcome.refresh, expiresAt: new Date(Date.now() + twoHours) },
+    });
+    const res = await request(app)
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json')
+      .send({ username: 'shri', password: 'correct-password' })
+      .expect(200);
+    const cookie = (res.headers['set-cookie'] as unknown as string[]).find((c) =>
+      c.startsWith('buidco_refresh='),
+    );
+    const maxAge = Number(/Max-Age=(\d+)/.exec(cookie ?? '')?.[1]);
+    expect(maxAge).toBeGreaterThan(2 * 3600 - 10);
+    expect(maxAge).toBeLessThanOrEqual(2 * 3600);
+  });
+
+  it('429 from the per-IP budget before the account is even looked up (S-14)', async () => {
+    limiters.loginIp.mockResolvedValueOnce({ success: false, remaining: 0, reset: Date.now() + 60_000 });
+    const res = await request(app)
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json')
+      .send({ username: 'any-account', password: 'x' })
+      .expect(429);
+    expect(res.body.error.code).toBe('RATE_LIMITED');
+    expect(res.headers['retry-after']).toBeDefined();
+    expect(limiters.loginUser).not.toHaveBeenCalled();
+    expect(mockedLogin).not.toHaveBeenCalled();
+  });
+
+  it('per-IP and per-account budgets are keyed differently', async () => {
+    mockedLogin.mockResolvedValueOnce(successOutcome);
+    await request(app)
+      .post('/api/auth/login')
+      .set('Content-Type', 'application/json')
+      .send({ username: 'Shri', password: 'correct-password' })
+      .expect(200);
+    expect(limiters.loginIp).toHaveBeenCalledWith(expect.stringMatching(/^ip:/));
+    expect(limiters.loginUser).toHaveBeenCalledWith('user:shri');
+  });
 });
 
 describe('POST /api/auth/refresh', () => {
@@ -196,12 +249,73 @@ describe('POST /api/auth/refresh', () => {
 });
 
 describe('POST /api/auth/logout', () => {
-  it('always returns 204 and clears the cookie, even without a session', async () => {
-    mockedLogout.mockResolvedValueOnce(undefined);
-    const res = await request(app).post('/api/auth/logout').expect(204);
+  it('returns 204 and clears the cookie, even without a session', async () => {
+    mockedLogout.mockResolvedValueOnce({ userId: null });
+    const res = await request(app)
+      .post('/api/auth/logout')
+      .set('Content-Type', 'application/json')
+      .send({})
+      .expect(204);
     const setCookie = res.headers['set-cookie'] as unknown as string[];
     expect(setCookie).toBeDefined();
     // Express clearCookie sets Expires in the past
     expect(setCookie.some((c) => c.startsWith('buidco_refresh='))).toBe(true);
+  });
+
+  it('passes the cookie to the service so the whole session is revoked', async () => {
+    mockedLogout.mockResolvedValueOnce({ userId: 7 });
+    await request(app)
+      .post('/api/auth/logout')
+      .set('Content-Type', 'application/json')
+      .set('Cookie', 'buidco_refresh=some.cookie.value')
+      .send({})
+      .expect(204);
+    expect(mockedLogout).toHaveBeenCalledWith('some.cookie.value');
+  });
+
+  it('415 for a non-JSON request, e.g. a cross-site form post (S-28)', async () => {
+    const res = await request(app)
+      .post('/api/auth/logout')
+      .set('Content-Type', 'application/x-www-form-urlencoded')
+      .set('Cookie', 'buidco_refresh=some.cookie.value')
+      .send('a=1')
+      .expect(415);
+    expect(res.body.error.code).toBe('UNSUPPORTED_MEDIA_TYPE');
+    expect(mockedLogout).not.toHaveBeenCalled();
+  });
+
+  it('415 when no Content-Type is sent at all', async () => {
+    await request(app).post('/api/auth/logout').expect(415);
+    expect(mockedLogout).not.toHaveBeenCalled();
+  });
+});
+
+describe('password-reset code delivery (S-04)', () => {
+  it('refuses the mobile channel — no SMS gateway is approved', async () => {
+    const res = await request(app)
+      .post('/api/auth/send-otp')
+      .set('Content-Type', 'application/json')
+      .send({ username: 'shri', channel: 'mobile' })
+      .expect(400);
+    expect(res.body.error.code).toBe('CHANNEL_UNAVAILABLE');
+  });
+
+  it('refuses a mobile password-reset request before anything is stored', async () => {
+    const res = await request(app)
+      .post('/api/auth/password-reset-requests')
+      .set('Content-Type', 'application/json')
+      .send({ username: 'some_pd', channel: 'mobile' })
+      .expect(400);
+    expect(res.body.error.code).toBe('CHANNEL_UNAVAILABLE');
+  });
+
+  it('answers 503 for e-mail when SMTP is not configured, instead of logging the code', async () => {
+    // The test environment has no SMTP_* variables.
+    const res = await request(app)
+      .post('/api/auth/send-otp')
+      .set('Content-Type', 'application/json')
+      .send({ username: 'whoever', channel: 'email' })
+      .expect(503);
+    expect(res.body.error.code).toBe('OTP_DELIVERY_UNAVAILABLE');
   });
 });

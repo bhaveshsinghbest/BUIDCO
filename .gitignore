@@ -1,0 +1,33 @@
+# Root-level ignores. backend/ and frontend/ keep their own .gitignore files.
+
+# Local environment files, wherever they appear (templates stay tracked).
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+!.env.example
+!.env.local.example
+
+# Claude Code local session state (machine-specific, not project config).
+.claude/scheduled_tasks.lock
+.claude/settings.local.json
+
+# Logs (PM2 writes backend/.pm2-*.log and frontend/.pm2-*.log).
+*.log
+
+# Audit-preparation working folder: security findings and the generated
+# audit package. Share it only through the approved channel, never via git.
+audit-prep/
+
+# Office/PDF documents at the repo root (reports, RFP analyses, notes).
+# These are not source code; keep them in the department's document store.
+/*.docx
+/*.doc
+/*.pdf
+/*.pptx
+/*.xlsx
+
+# OS / editor noise.
+Thumbs.db
+.DS_Store

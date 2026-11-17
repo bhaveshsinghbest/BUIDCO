@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { sessionDivisionId } from '../lib/actor.js';
-import { requireAuth } from '../middleware/auth.js';
+import { requireProjectReader } from '../middleware/auth.js';
 import * as kpi from '../lib/kpi.js';
 
 /**
@@ -13,7 +13,8 @@ import * as kpi from '../lib/kpi.js';
  */
 export const kpisRouter = Router();
 
-kpisRouter.use(requireAuth);
+// Dashboard figures are project data: signed in AND "Can view projects" (S-03).
+kpisRouter.use(...requireProjectReader);
 
 kpisRouter.get('/overview', async (req, res, next) => {
   try {

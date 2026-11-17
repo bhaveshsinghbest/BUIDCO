@@ -20,6 +20,8 @@
 
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
+import { optionalIsoDate } from '../lib/validators.js';
+import { isIsoCalendarDate } from '../lib/fundsUc.js';
 import { db } from '../db/client.js';
 import { milestoneProgress, project, projectMilestone } from '../db/schema.js';
 import type { MilestoneProgress, ProjectMilestone } from '../db/schema.js';
@@ -32,12 +34,7 @@ import { HttpError } from '../middleware/errorHandler.js';
  * Zod
  * ============================================================ */
 
-const dateField = () =>
-  z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD')
-    .nullable()
-    .optional();
+const dateField = optionalIsoDate;
 
 const milestoneInput = z.object({
   milestoneId: z.number().int().positive().optional(),
@@ -67,7 +64,8 @@ const progressEntry = z.object({
 export const upsertMonthlyProgressSchema = z.object({
   snapMonth: z
     .string()
-    .regex(/^\d{4}-\d{2}-01$/, 'snapMonth must be a first-of-month date (YYYY-MM-01)'),
+    .regex(/^\d{4}-\d{2}-01$/, 'snapMonth must be a first-of-month date (YYYY-MM-01)')
+    .refine(isIsoCalendarDate, 'snapMonth is not a valid month'),
   entries: z.array(progressEntry).min(1).max(50),
 });
 

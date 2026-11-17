@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { NavLink } from 'react-router-dom';
-import { useListCosEotRecordsQuery } from '../app/api/kpisApi';
+import { useLazyListCosEotRecordsQuery, useListCosEotRecordsQuery } from '../app/api/kpisApi';
 import { useGetLookupsQuery } from '../app/api/lookupsApi';
 import { Button } from '../components/ui/button';
 import { Card, CardContent } from '../components/ui/card';
@@ -26,7 +26,7 @@ const PAGE_SIZE = 25;
 interface ColFilters {
   project: string;
   sectorId: string;
-  districtId: string;
+  divisionId: string;
   cosNumber: string;
   category: string;
   minAmount: string;
@@ -35,7 +35,7 @@ interface ColFilters {
   minEotDays: string;
 }
 const EMPTY_FILTERS: ColFilters = {
-  project: '', sectorId: '', districtId: '', cosNumber: '', category: '',
+  project: '', sectorId: '', divisionId: '', cosNumber: '', category: '',
   minAmount: '', minVariation: '', eotNumber: '', minEotDays: '',
 };
 
@@ -44,7 +44,7 @@ const COS_COLUMNS: ToolbarColumn[] = [
   { key: 'sno', label: '#' },
   { key: 'project', label: 'Project' },
   { key: 'sector', label: 'Sector' },
-  { key: 'district', label: 'District' },
+  { key: 'division', label: 'Division' },
   { key: 'cosNumber', label: 'CoS #' },
   { key: 'cosDate', label: 'CoS Date' },
   { key: 'category', label: 'Category' },
@@ -54,13 +54,17 @@ const COS_COLUMNS: ToolbarColumn[] = [
   { key: 'eotDays', label: 'EoT Days' },
   { key: 'revisedEnd', label: 'Revised End' },
 ];
-const COS_STORAGE_KEY = 'buidco.cosEot.columns.v1';
+// Bumped to v2 for the District -> Division swap (Task 2). useColumnVisibility
+// trusts a stored map verbatim instead of merging it against the column list,
+// so reusing v1 would leave the new Division column hidden for everyone who
+// had already opened this page and had a map without a `division` key.
+const COS_STORAGE_KEY = 'buidco.cosEot.columns.v2';
 
 interface CosExportRow {
   sno: number;
   project: string;
   sector: string;
-  district: string;
+  division: string;
   cosNumber: string;
   cosDate: string;
   category: string;
@@ -74,7 +78,7 @@ const COS_EXPORT_COLUMNS: ExportColumn<CosExportRow>[] = [
   { key: 'sno', label: '#', align: 'right', exportValue: (r) => r.sno },
   { key: 'project', label: 'Project', exportValue: (r) => r.project },
   { key: 'sector', label: 'Sector', exportValue: (r) => r.sector },
-  { key: 'district', label: 'District', exportValue: (r) => r.district },
+  { key: 'division', label: 'Division', exportValue: (r) => r.division },
   { key: 'cosNumber', label: 'CoS #', exportValue: (r) => r.cosNumber },
   { key: 'cosDate', label: 'CoS Date', exportValue: (r) => r.cosDate },
   { key: 'category', label: 'Category', exportValue: (r) => r.category },
@@ -106,9 +110,9 @@ export function CosEotPage(): JSX.Element {
     setColFilters((prev) => ({ ...prev, [key]: value }));
   const activeFilterCount = Object.values(colFilters).filter((v) => v.trim() !== '').length;
 
-  const districtsById = useMemo(() => {
+  const divisionsById = useMemo(() => {
     const map = new Map<number, string>();
-    for (const d of lookups.data?.districts ?? []) map.set(d.districtId, d.districtName);
+    for (const d of lookups.data?.divisions ?? []) map.set(d.divisionId, d.divisionName);
     return map;
   }, [lookups.data]);
   const sectorsById = useMemo(() => {
@@ -117,20 +121,22 @@ export function CosEotPage(): JSX.Element {
     return map;
   }, [lookups.data]);
 
-  const filteredItems = useMemo(() => {
-    const raw = data?.items ?? [];
-    return raw.filter((r) =>
-      textMatches(colFilters.project, r.projectName) &&
-      selectMatches(colFilters.sectorId, r.sectorId === null ? '' : String(r.sectorId)) &&
-      selectMatches(colFilters.districtId, r.districtId === null ? '' : String(r.districtId)) &&
-      textMatches(colFilters.cosNumber, r.cosNumber) &&
-      selectMatches(colFilters.category, r.category) &&
-      minMatches(colFilters.minAmount, r.cosAmountCr) &&
-      minMatches(colFilters.minVariation, r.variationPct) &&
-      textMatches(colFilters.eotNumber, r.eotNumber) &&
-      minMatches(colFilters.minEotDays, r.eotDaysGranted),
-    );
-  }, [data, colFilters]);
+  const matchesColFilters = (r: CosEotRecord): boolean =>
+    textMatches(colFilters.project, r.projectName) &&
+    selectMatches(colFilters.sectorId, r.sectorId === null ? '' : String(r.sectorId)) &&
+    selectMatches(colFilters.divisionId, r.divisionId === null ? '' : String(r.divisionId)) &&
+    textMatches(colFilters.cosNumber, r.cosNumber) &&
+    selectMatches(colFilters.category, r.category) &&
+    minMatches(colFilters.minAmount, r.cosAmountCr) &&
+    minMatches(colFilters.minVariation, r.variationPct) &&
+    textMatches(colFilters.eotNumber, r.eotNumber) &&
+    minMatches(colFilters.minEotDays, r.eotDaysGranted);
+
+  const filteredItems = useMemo(
+    () => (data?.items ?? []).filter(matchesColFilters),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- matchesColFilters closes over colFilters, already a dep
+    [data, colFilters],
+  );
 
   /** The open record, resolved fresh from the current page of results. */
   const selectedRecord = useMemo<CosEotRecord | null>(
@@ -149,13 +155,40 @@ export function CosEotPage(): JSX.Element {
 
   const { visibility, isVisible, toggle, showAll, hideAll } = useColumnVisibility(COS_STORAGE_KEY, COS_COLUMNS);
   const { exporting, error: exportError, run } = useTableExport<CosExportRow>();
+  const [fetchCosPage] = useLazyListCosEotRecordsQuery();
+  const [exportFetchError, setExportFetchError] = useState<string | null>(null);
 
-  const runExport = (format: ExportFormat): void => {
-    const exportRows: CosExportRow[] = filteredItems.map((r, i) => ({
-      sno: offset + i + 1,
+  /**
+   * The download is the whole register, not the 25 rows on screen: walk
+   * every page at the API's maximum page size, then apply the same column
+   * filters as the table. It used to export only the current page, so a
+   * 71-record register downloaded as 25 rows with nothing saying so.
+   */
+  const fetchAllRecords = async (): Promise<CosEotRecord[]> => {
+    const all: CosEotRecord[] = [];
+    let next: number | null = 0;
+    while (next !== null) {
+      const page = await fetchCosPage({ limit: 100, offset: next }).unwrap();
+      all.push(...page.items);
+      next = page.nextOffset;
+    }
+    return all;
+  };
+
+  const runExport = async (format: ExportFormat): Promise<void> => {
+    setExportFetchError(null);
+    let records: CosEotRecord[];
+    try {
+      records = (await fetchAllRecords()).filter(matchesColFilters);
+    } catch {
+      setExportFetchError('Could not load all CoS/EoT records for the download. Please try again.');
+      return;
+    }
+    const exportRows: CosExportRow[] = records.map((r, i) => ({
+      sno: i + 1,
       project: r.projectName ?? r.projectId,
       sector: r.sectorId ? sectorsById.get(r.sectorId) ?? `#${r.sectorId}` : '—',
-      district: r.districtId ? districtsById.get(r.districtId) ?? `#${r.districtId}` : '—',
+      division: r.divisionId ? divisionsById.get(r.divisionId) ?? `#${r.divisionId}` : '—',
       cosNumber: r.cosNumber ?? '—',
       cosDate: formatDate(r.cosDate),
       category: r.category ?? '—',
@@ -184,9 +217,11 @@ export function CosEotPage(): JSX.Element {
       </header>
 
       <div className="grid grid-cols-2 gap-2 md:grid-cols-3">
+        {/* All three cover the rows on this page only — labelled so a page
+            subtotal isn't read as the portfolio total. */}
         <Metric label="Records on page" value={String(totals.pageCount)} tone="brand" />
-        <Metric label="Total CoS value" value={formatCurrencyCr(totals.totalAmount)} tone="info" />
-        <Metric label="Total EoT days" value={`${totals.totalEotDays} d`} tone="warn" />
+        <Metric label="CoS value on page" value={formatCurrencyCr(totals.totalAmount)} tone="info" />
+        <Metric label="EoT days on page" value={`${totals.totalEotDays} d`} tone="warn" />
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -204,7 +239,9 @@ export function CosEotPage(): JSX.Element {
             </button>
           </>
         ) : null}
-        {exportError ? <span className="text-[11.5px] text-[#B91C1C]">{exportError}</span> : null}
+        {exportError || exportFetchError ? (
+          <span className="text-[11.5px] text-[#B91C1C]">{exportFetchError ?? exportError}</span>
+        ) : null}
         <div className="ml-auto flex items-center gap-2">
           <ColumnsButton
             columns={COS_COLUMNS}
@@ -213,7 +250,7 @@ export function CosEotPage(): JSX.Element {
             onShowAll={showAll}
             onHideAll={hideAll}
           />
-          <ExportButton onExport={runExport} exporting={exporting} />
+          <ExportButton onExport={(f) => void runExport(f)} exporting={exporting} />
         </div>
       </div>
 
@@ -256,13 +293,13 @@ export function CosEotPage(): JSX.Element {
                         />
                       </th>
                     ) : null}
-                    {isVisible('district') ? (
+                    {isVisible('division') ? (
                       <th className="px-3 py-2 text-left align-top">
-                        <div>District</div>
+                        <div>Division</div>
                         <ColumnFilterSelect
-                          value={colFilters.districtId}
-                          onChange={(v) => setCol('districtId', v)}
-                          options={(lookups.data?.districts ?? []).map((d) => ({ value: String(d.districtId), label: d.districtName }))}
+                          value={colFilters.divisionId}
+                          onChange={(v) => setCol('divisionId', v)}
+                          options={(lookups.data?.divisions ?? []).map((d) => ({ value: String(d.divisionId), label: d.divisionName }))}
                         />
                       </th>
                     ) : null}
@@ -335,9 +372,9 @@ export function CosEotPage(): JSX.Element {
                           {r.sectorId ? sectorsById.get(r.sectorId) ?? `#${r.sectorId}` : '—'}
                         </td>
                       ) : null}
-                      {isVisible('district') ? (
+                      {isVisible('division') ? (
                         <td className="px-3 py-2 text-[#374151]">
-                          {r.districtId ? districtsById.get(r.districtId) ?? `#${r.districtId}` : '—'}
+                          {r.divisionId ? divisionsById.get(r.divisionId) ?? `#${r.divisionId}` : '—'}
                         </td>
                       ) : null}
                       {isVisible('cosNumber') ? (

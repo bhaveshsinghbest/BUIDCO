@@ -1,5 +1,6 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { optionalIsoDate } from '../lib/validators.js';
 import { db } from '../db/client.js';
 import { cosCategories } from '../db/enums.js';
 import { cosEotItem, project } from '../db/schema.js';
@@ -17,12 +18,7 @@ const numericField = () =>
     .optional()
     .transform((v) => (typeof v === 'number' ? String(v) : v));
 
-const dateField = () =>
-  z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD')
-    .nullable()
-    .optional();
+const dateField = optionalIsoDate;
 
 export const cosEotCreateSchema = z.object({
   cosNumber: z.string().min(1).max(20).nullable().optional(),

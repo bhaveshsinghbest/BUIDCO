@@ -162,11 +162,10 @@ export function LoginPage(): JSX.Element {
 
   // Wake the API before the user can submit.
   //
-  // The backend is on Render's free tier, which spins the instance down
-  // after ~15 minutes idle. The next request pays a full cold boot —
-  // measured at ~33s against /api/health, versus ~0.25s warm. Vercel's
-  // rewrite proxy (vercel.json -> buidco.onrender.com) gives up long
-  // before that and hands the browser an HTML gateway error, which
+  // On a host that suspends idle instances, the first request after ~15
+  // minutes pays a full cold boot — measured at ~33s against /api/health,
+  // versus ~0.25s warm. A rewrite proxy in front of the API can give up
+  // long before that and hand the browser an HTML gateway error, which
   // fetchBaseQuery can't parse as JSON. The result was a PARSING_ERROR /
   // FETCH_ERROR carrying no server message, so every such failure landed
   // on the generic "Sign-in failed" fallback — indistinguishable from a

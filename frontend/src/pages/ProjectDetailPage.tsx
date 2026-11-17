@@ -7,6 +7,7 @@ import { useListGeoPhotosQuery } from '../app/api/geoPhotosApi';
 import { useGetFundsUcByProjectQuery } from '../app/api/fundsUcApi';
 import { useAppSelector } from '../app/hooks';
 import { RoleGate } from '../components/auth/RoleGate';
+import { FundsDetailGroup } from '../components/fundsUc/FundsDetailGroup';
 import { OmAlertCell } from '../components/projects/OmAlertCell';
 import { PbgAlertCell } from '../components/projects/PbgAlertCell';
 import { PriorityBadge } from '../components/projects/PriorityBadge';
@@ -16,7 +17,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Skeleton } from '../components/ui/skeleton';
 import { selectCurrentUser } from '../features/auth/authSlice';
 import { formatCurrencyCr, formatDate, formatPercent } from '../lib/formatters';
-import { fundsUcStatusOf } from '../lib/fundsUc';
+import { safeHttpUrl } from '../lib/safeUrl';
 import type { ProjectDetail } from '../types/api';
 
 export function ProjectDetailPage(): JSX.Element {
@@ -215,45 +216,6 @@ export function ProjectDetailPage(): JSX.Element {
 
         <Card>
           <CardHeader>
-            <CardTitle>Funding Source & UC</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {fundsUc.isLoading ? (
-              <Skeleton className="h-24 w-full" />
-            ) : !fundsUc.data ? (
-              <p className="text-sm text-[#6B7280]">
-                No Funding Source recorded yet. Add it from the Input Sheet&apos;s Funding Source section.
-              </p>
-            ) : (
-              <FieldGrid
-                fields={[
-                  { label: 'Funding Source', value: fundsUc.data.fundingSource },
-                  ...(fundsUc.data.fundingSource === 'Central - State Share'
-                    ? [
-                        { label: 'Central Share', value: formatPercent(fundsUc.data.centralSharePct, 0) },
-                        { label: 'State Share', value: formatPercent(fundsUc.data.stateSharePct, 0) },
-                      ]
-                    : []),
-                  { label: 'Opening Balance', value: formatCurrencyCr(fundsUc.data.openingBalanceCr) },
-                  { label: 'Grant Received', value: formatCurrencyCr(fundsUc.data.grantReceivedCr) },
-                  { label: 'Expenditure Incurred', value: formatCurrencyCr(fundsUc.data.expenditureIncurredCr) },
-                  {
-                    label: 'Closing Balance',
-                    value: formatCurrencyCr(
-                      fundsUc.data.openingBalanceCr + fundsUc.data.grantReceivedCr - fundsUc.data.expenditureIncurredCr,
-                    ),
-                  },
-                  { label: 'Sanction No.', value: fundsUc.data.sanctionNo },
-                  { label: 'UC Submitted Date', value: formatDate(fundsUc.data.ucSubmittedDate) },
-                  { label: 'UC Status', value: fundsUcStatusOf(fundsUc.data) },
-                ]}
-              />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
             <CardTitle>PBG & EMD</CardTitle>
           </CardHeader>
           <CardContent>
@@ -346,6 +308,9 @@ export function ProjectDetailPage(): JSX.Element {
         </Card>
       </div>
 
+      {/* Full width: its 4-column grid of 15+ fields does not fit a half-width card. */}
+      <FundsDetailGroup entry={fundsUc.data ?? null} loading={fundsUc.isLoading} />
+
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader className="flex-row items-center justify-between">
@@ -432,13 +397,13 @@ export function ProjectDetailPage(): JSX.Element {
                 {photos.data.items.slice(0, 6).map((p) => (
                   <a
                     key={p.photoId}
-                    href={p.url}
+                    href={safeHttpUrl(p.url) ?? undefined}
                     target="_blank"
                     rel="noreferrer noopener"
                     className="group block overflow-hidden rounded border border-[#E5E7EB] bg-[#F9FAFB]"
                   >
                     <img
-                      src={p.url}
+                      src={safeHttpUrl(p.url) ?? undefined}
                       alt={p.caption ?? 'Geo photo'}
                       loading="lazy"
                       className="h-24 w-full object-cover transition-transform group-hover:scale-105"

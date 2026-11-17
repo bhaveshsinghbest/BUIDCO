@@ -5,7 +5,8 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-const RENDER_URL = 'https://buidco.onrender.com';
+// A placeholder host: the real service address is deployment detail (S-18 / Q-07).
+const RENDER_URL = 'https://api.example.invalid';
 
 /** env.ts validates process.env once at import, so each case needs a fresh
  *  module registry with the variables already in place. */

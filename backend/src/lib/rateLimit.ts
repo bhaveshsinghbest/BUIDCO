@@ -1,39 +1,36 @@
 /**
- * Upstash-backed rate limiter, with an in-process fallback.
+ * Rate limiting for the authentication endpoints (finding S-14).
  *
- * Upstash is the right implementation: a sliding window in Redis is shared
- * by every instance and survives restarts. When it is configured, nothing
- * here changes.
+ * Where the counters live is chosen with RATE_LIMIT_STORE (see env.ts):
  *
- * When it is NOT configured, this used to return `{ success: true }` for
- * every check — which meant a deployment missing the env vars silently ran
- * with no brute-force protection at all. That is exactly what was found on
- * the live deployment: 26 consecutive failed logins against a configured
- * budget of 20 per 15 minutes, and not one 429. The startup line said
- * "FATAL", but nothing actually failed, so it scrolled past unnoticed.
+ *   postgres  A counter table in the application database (migration 0021).
+ *             Shared by every API instance, survives restarts, and keeps the
+ *             data on the government server: no third-party service. This is
+ *             the recommended store for government hosting.
+ *   upstash   Upstash Redis over REST: shared and durable, but a third-party
+ *             (possibly overseas) service holding usernames and IP addresses.
+ *   memory    Held in this process. Honest limits: per instance (N instances
+ *             = N times the budget) and reset by a restart. Acceptable only
+ *             for a single-instance deployment.
+ *   off       No limiting. Development and tests only; env.ts refuses it in
+ *             production.
  *
- * So in PRODUCTION the fallback is now a real sliding-window limiter held
- * in memory. Its limits are the honest ones:
+ * Unset: upstash when its variables are present, otherwise memory in
+ * production (the old fallback) and off elsewhere — the end-to-end suite
+ * signs in as the same demo account far more often than any production
+ * budget allows.
  *
- *   - It is per-process. With more than one instance each gets its own
- *     budget, so the effective limit multiplies by the instance count.
- *   - It resets on restart or redeploy.
- *
- * Neither is good enough to call this a replacement for Upstash, and the
- * startup warning says so. But "imperfect and per-instance" stops a
- * credential-stuffing run; "always allow" does not.
- *
- * Outside production the fallback stays a no-op, deliberately. The login
- * budget is keyed by username (see loginKey in routes/auth.ts), and the
- * end-to-end suite signs in as the same demo account far more than 20
- * times in a 15-minute run — throttling that would break the test suite
- * and local development while fixing nothing, because the exposure being
- * closed here only exists on a deployed environment.
+ * History: a deployment without Upstash used to get "always allow" — a
+ * startup warning, but no throttling at all. Production can no longer end up
+ * unthrottled.
  */
 
 import { Ratelimit } from '@upstash/ratelimit';
 import { Redis } from '@upstash/redis';
-import { env, isProduction } from '../env.js';
+import { sql } from 'drizzle-orm';
+import { db } from '../db/client.js';
+import { env, type Env } from '../env.js';
+import { logger } from './logger.js';
 
 export interface RateLimitResult {
   success: boolean;
@@ -43,17 +40,32 @@ export interface RateLimitResult {
 
 export type Limiter = (key: string) => Promise<RateLimitResult>;
 
-const hasUpstash = Boolean(env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN);
+export type RateLimitStore = 'upstash' | 'postgres' | 'memory' | 'off';
 
-if (!hasUpstash) {
-  const msg = isProduction
-    ? 'FATAL: UPSTASH_REDIS_REST_URL/TOKEN missing in production — falling back to a per-instance in-memory rate limiter. Limits are NOT shared across instances and reset on restart. Configure Upstash.'
-    : 'warn: UPSTASH_REDIS_REST_URL/TOKEN missing — rate limiting disabled (dev only).';
-  process.stderr.write(`${msg}\n`);
+export function resolveStore(
+  e: Pick<Env, 'RATE_LIMIT_STORE' | 'UPSTASH_REDIS_REST_URL' | 'UPSTASH_REDIS_REST_TOKEN' | 'NODE_ENV'>,
+): RateLimitStore {
+  if (e.RATE_LIMIT_STORE) return e.RATE_LIMIT_STORE;
+  if (e.UPSTASH_REDIS_REST_URL && e.UPSTASH_REDIS_REST_TOKEN) return 'upstash';
+  return e.NODE_ENV === 'production' ? 'memory' : 'off';
+}
+
+export const rateLimitStore: RateLimitStore = resolveStore(env);
+
+if (rateLimitStore === 'memory' && env.NODE_ENV === 'production') {
+  logger.warn('config.rate_limit_store', {
+    store: 'memory',
+    effect:
+      'limits are per instance and reset on restart; set RATE_LIMIT_STORE=postgres when running more than one instance',
+  });
+} else if (rateLimitStore === 'off') {
+  logger.warn('config.rate_limit_store', { store: 'off', effect: 'rate limiting disabled (not production)' });
+} else {
+  logger.info('config.rate_limit_store', { store: rateLimitStore });
 }
 
 const redis =
-  hasUpstash && env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN
+  rateLimitStore === 'upstash' && env.UPSTASH_REDIS_REST_URL && env.UPSTASH_REDIS_REST_TOKEN
     ? new Redis({ url: env.UPSTASH_REDIS_REST_URL, token: env.UPSTASH_REDIS_REST_TOKEN })
     : null;
 
@@ -97,54 +109,151 @@ export function createInMemoryLimiter(limit: number, windowMs: number): Limiter 
   };
 }
 
+/** Executes the counter statement; injectable so it can be tested without a database. */
+export type CounterQuery = (
+  bucketKey: string,
+  windowSeconds: number,
+) => Promise<{ hits: number; windowStartedMs: number }>;
+
+const postgresCounter: CounterQuery = async (bucketKey, windowSeconds) => {
+  // One atomic statement: insert the bucket, or count one more hit in it,
+  // restarting the window once it has elapsed. Concurrent requests for the
+  // same key serialise on the row, so none is lost and none double-counted.
+  const result = await db.execute<{ hits: number; window_started_ms: string }>(sql`
+    INSERT INTO rate_limit_counter AS c (bucket_key, hits, window_started_at)
+    VALUES (${bucketKey}, 1, now())
+    ON CONFLICT (bucket_key) DO UPDATE SET
+      hits = CASE
+        WHEN c.window_started_at <= now() - make_interval(secs => ${windowSeconds}) THEN 1
+        ELSE c.hits + 1
+      END,
+      window_started_at = CASE
+        WHEN c.window_started_at <= now() - make_interval(secs => ${windowSeconds}) THEN now()
+        ELSE c.window_started_at
+      END
+    RETURNING c.hits, floor(extract(epoch FROM c.window_started_at) * 1000)::bigint AS window_started_ms
+  `);
+  const row = result.rows[0];
+  if (!row) throw new Error('rate_limit_counter upsert returned no row');
+  return { hits: Number(row.hits), windowStartedMs: Number(row.window_started_ms) };
+};
+
+let lastCleanup = 0;
+const CLEANUP_EVERY_MS = 10 * 60 * 1000;
+
+/** Drops buckets whose window ended long ago; at most every 10 minutes per process. */
+function cleanupPostgresBuckets(now: number): void {
+  if (now - lastCleanup < CLEANUP_EVERY_MS) return;
+  lastCleanup = now;
+  db.execute(sql`DELETE FROM rate_limit_counter WHERE window_started_at < now() - interval '1 day'`).catch(
+    (err: unknown) => {
+      logger.warn('rate_limit.cleanup_failed', { errorMessage: err instanceof Error ? err.message : String(err) });
+    },
+  );
+}
+
 /**
- * Builds a limiter from a budget expressed as "limit per windowMs".
- *
- * Taking the numbers rather than a prebuilt Upstash limiter is what lets
- * the in-memory fallback honour the same budget instead of inventing one.
+ * Fixed-window counter in PostgreSQL. Simpler than the sliding windows of
+ * the other stores; the cost is that a client can use up to twice the
+ * budget across a window boundary, which still bounds brute force.
+ */
+export function createPostgresLimiter(
+  prefix: string,
+  limit: number,
+  windowMs: number,
+  counter: CounterQuery = postgresCounter,
+  cleanup: (now: number) => void = cleanupPostgresBuckets,
+): Limiter {
+  const windowSeconds = Math.max(1, Math.round(windowMs / 1000));
+  return async (key: string): Promise<RateLimitResult> => {
+    cleanup(Date.now());
+    const { hits, windowStartedMs } = await counter(`${prefix}:${key}`, windowSeconds);
+    return {
+      success: hits <= limit,
+      remaining: Math.max(0, limit - hits),
+      reset: windowStartedMs + windowSeconds * 1000,
+    };
+  };
+}
+
+/**
+ * Fails fast at startup when the postgres store is selected but migration
+ * 0021 has not been applied, instead of failing every sign-in later.
+ */
+export async function verifyRateLimitStore(): Promise<void> {
+  if (rateLimitStore !== 'postgres') return;
+  const result = await db.execute<{ present: boolean }>(
+    sql`SELECT to_regclass('public.rate_limit_counter') IS NOT NULL AS present`,
+  );
+  if (!result.rows[0]?.present) {
+    throw new Error(
+      'RATE_LIMIT_STORE=postgres but table rate_limit_counter does not exist — run the database migrations (0021) first.',
+    );
+  }
+}
+
+const allowAll: Limiter = async () => ({
+  success: true,
+  remaining: Number.POSITIVE_INFINITY,
+  reset: Date.now(),
+});
+
+/**
+ * Builds a limiter from a budget expressed as "limit per windowMs", so every
+ * store honours the same numbers.
  */
 function build(prefix: string, limit: number, windowMs: number): Limiter {
-  if (!redis) {
-    // Production without Upstash still gets real throttling; everywhere
-    // else stays unthrottled so local runs and the e2e suite behave as
-    // they always have.
-    return isProduction
-      ? createInMemoryLimiter(limit, windowMs)
-      : async () => ({ success: true, remaining: Number.POSITIVE_INFINITY, reset: Date.now() });
+  switch (rateLimitStore) {
+    case 'off':
+      return allowAll;
+    case 'memory':
+      return createInMemoryLimiter(limit, windowMs);
+    case 'postgres':
+      return createPostgresLimiter(prefix, limit, windowMs);
+    case 'upstash': {
+      if (!redis) return createInMemoryLimiter(limit, windowMs); // unreachable: env.ts checks the variables
+      const rl = new Ratelimit({
+        redis,
+        limiter: Ratelimit.slidingWindow(limit, `${Math.round(windowMs / 1000)} s`),
+        prefix,
+        analytics: false,
+      });
+      return async (key: string) => {
+        const { success, remaining, reset } = await rl.limit(key);
+        return { success, remaining, reset };
+      };
+    }
   }
-
-  const rl = new Ratelimit({
-    redis,
-    limiter: Ratelimit.slidingWindow(limit, `${Math.round(windowMs / 1000)} s`),
-    prefix,
-    analytics: false,
-  });
-  return async (key: string) => {
-    const { success, remaining, reset } = await rl.limit(key);
-    return { success, remaining, reset };
-  };
 }
 
 const SECOND = 1_000;
 const MINUTE = 60 * SECOND;
 const HOUR = 60 * MINUTE;
 
+const LOGIN_WINDOW_MS = env.LOGIN_RATE_LIMIT_WINDOW_SECONDS * SECOND;
+
 /**
- * 20 attempts per 15 minutes, per IP.
+ * Login attempts per account (default 20 per 15 minutes).
  *
  * Chosen with the PD two-step login in mind — each PD sign-in makes two
- * POSTs to /auth/login (credentials → then divisionId), so the old 5/15min
- * budget only allowed 2.5 PD sessions per window. 20/15min still blocks
- * credential brute-force (average ~1.3/min sustained) but doesn't lock out
- * a real MD/Admin/PD who typos their password once or logs in a few times
- * during the day. Increase further if legitimate lockouts happen in prod.
+ * POSTs to /auth/login (credentials → then divisionId). 20/15min still blocks
+ * credential brute force but doesn't lock out a real MD/Admin/PD who typos
+ * their password once or signs in a few times during the day.
  */
-export const loginLimiter = build('rl:auth:login', 20, 15 * MINUTE);
+export const loginLimiter = build('rl:auth:login', env.LOGIN_RATE_LIMIT_PER_USER, LOGIN_WINDOW_MS);
+
+/**
+ * Login attempts per source IP across all accounts (default 100 per 15
+ * minutes), finding S-14. Stops one address from trying a common password
+ * against every account. Generous because a government office signs in from
+ * behind one NAT address; tune LOGIN_RATE_LIMIT_PER_IP to the largest office.
+ */
+export const loginIpLimiter = build('rl:auth:login-ip', env.LOGIN_RATE_LIMIT_PER_IP, LOGIN_WINDOW_MS);
 
 /** 20 refresh calls per minute, per IP. */
 export const refreshLimiter = build('rl:auth:refresh', 20, 1 * MINUTE);
 
-/** 20 uploads per minute, per user. Wired in Phase 4 when uploads land. */
+/** 20 uploads per minute, per user. */
 export const uploadLimiter = build('rl:upload', 20, 1 * MINUTE);
 
 /**

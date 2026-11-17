@@ -6,11 +6,12 @@
  *   npx playwright test tasks.audit
  */
 import { expect, test, type Page } from '@playwright/test';
+import { demoPassword } from './demoCredentials';
 
 async function signIn(page: Page): Promise<void> {
   await page.goto('/login');
   await page.getByLabel('Username').fill('demo_md');
-  await page.getByLabel('Password').fill('Demo@1234');
+  await page.getByLabel('Password').fill(demoPassword());
   await page.getByRole('button', { name: 'Sign in' }).click();
   await expect(page).not.toHaveURL(/\/login$/, { timeout: 45_000 });
 

@@ -1,9 +1,12 @@
-import { and, eq, isNull } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
+import { and, eq, isNull, sql } from 'drizzle-orm';
 import type { Request } from 'express';
 import { db } from '../db/client.js';
 import type { UserRole } from '../db/enums.js';
 import { appUser, division, refreshToken, userDivision } from '../db/schema.js';
+import { env, isProduction } from '../env.js';
 import { HttpError } from '../middleware/errorHandler.js';
+import { logger } from '../lib/logger.js';
 import { verifyPassword } from '../lib/passwords.js';
 import {
   parseRefreshCookie,
@@ -48,11 +51,99 @@ function requestFingerprint(req: Request): { userAgent: string | null; ip: strin
   return { userAgent: ua, ip };
 }
 
+/* ------------------------------------------------------------------ */
+/* Sessions (finding S-15)                                             */
+/* ------------------------------------------------------------------ */
+
+/** One sign-in. Every refresh token rotated from it carries the same id. */
+interface SessionRef {
+  id: string;
+  startedAt: Date;
+}
+
+function newSession(): SessionRef {
+  return { id: randomUUID(), startedAt: new Date() };
+}
+
+/**
+ * The session a refresh-token row belongs to. Rows issued before migration
+ * 0020 have none; they are adopted into a fresh session (its absolute
+ * lifetime starts now) rather than signing everyone out on deployment.
+ */
+function sessionOf(row: RefreshTokenRow): SessionRef {
+  if (row.sessionId) {
+    return { id: row.sessionId, startedAt: row.sessionStartedAt ?? row.issuedAt };
+  }
+  return newSession();
+}
+
+function sessionEndsAt(session: SessionRef): number {
+  return session.startedAt.getTime() + env.SESSION_MAX_AGE_SECONDS * 1000;
+}
+
+/**
+ * Lifetime of the next refresh token: the idle timeout, cut short when the
+ * session's absolute lifetime ends sooner. The refresh cookie and the row's
+ * expires_at both follow it.
+ */
+function refreshTtlSeconds(session: SessionRef, now = Date.now()): number {
+  const remaining = Math.floor((sessionEndsAt(session) - now) / 1000);
+  return Math.min(env.REFRESH_TOKEN_TTL_SECONDS, remaining);
+}
+
+async function revokeSession(sessionId: string): Promise<void> {
+  await db
+    .update(refreshToken)
+    .set({ revokedAt: new Date() })
+    .where(and(eq(refreshToken.sessionId, sessionId), isNull(refreshToken.revokedAt)));
+}
+
+/**
+ * True while the session still has a live refresh token: not revoked, not
+ * expired, and inside the absolute lifetime. requireAuth calls this on every
+ * request, so ending a session (logout, password reset, reuse detection,
+ * expiry) ends API access at once rather than when the last access token
+ * expires. Served by the partial index idx_refresh_token_live_session.
+ */
+export async function isSessionActive(sessionId: string): Promise<boolean> {
+  const rows = await db
+    .select({ tokenId: refreshToken.tokenId })
+    .from(refreshToken)
+    .where(
+      and(
+        eq(refreshToken.sessionId, sessionId),
+        isNull(refreshToken.revokedAt),
+        sql`${refreshToken.expiresAt} > now()`,
+        sql`${refreshToken.sessionStartedAt} > now() - make_interval(secs => ${env.SESSION_MAX_AGE_SECONDS})`,
+      ),
+    )
+    .limit(1);
+  return rows.length > 0;
+}
+
+/* ------------------------------------------------------------------ */
+/* Demo accounts (finding S-02)                                        */
+/* ------------------------------------------------------------------ */
+
+/** Accounts created by db:seed-demo-roles; their password is published. */
+export const DEMO_ACCOUNT_PATTERN = /^demo_/i;
+
+/**
+ * In production a demo account cannot sign in, unless the deployment has
+ * explicitly opted in (ALLOW_DEMO_ACCOUNTS=true, never on government
+ * hosting). The caller answers with the ordinary "invalid username or
+ * password" so the response reveals nothing.
+ */
+export function isDemoLoginBlocked(username: string): boolean {
+  return isProduction && env.ALLOW_DEMO_ACCOUNTS !== 'true' && DEMO_ACCOUNT_PATTERN.test(username);
+}
+
 async function persistRefreshToken(
   userId: number,
   refresh: SignedRefreshToken,
   req: Request,
   selectedDivisionId: number | null,
+  session: SessionRef,
 ): Promise<void> {
   const { userAgent, ip } = requestFingerprint(req);
   await db.insert(refreshToken).values({
@@ -63,6 +154,8 @@ async function persistRefreshToken(
     userAgent,
     ipAddress: ip,
     selectedDivisionId,
+    sessionId: session.id,
+    sessionStartedAt: session.startedAt,
   });
 }
 
@@ -98,6 +191,11 @@ export async function login(
 
   const ok = await verifyPassword(password, row.passwordHash);
   if (!ok) {
+    throw new HttpError(401, 'INVALID_CREDENTIALS', 'Invalid username or password');
+  }
+
+  if (isDemoLoginBlocked(row.username)) {
+    logger.warn('auth.login.demo_account_blocked', { userId: row.userId, username: row.username });
     throw new HttpError(401, 'INVALID_CREDENTIALS', 'Invalid username or password');
   }
 
@@ -144,14 +242,16 @@ export async function login(
     ...(sessionDivisionId !== null ? { divisionId: sessionDivisionId } : {}),
   };
 
+  const session = newSession();
+  const refresh = await signRefreshToken(user.userId, refreshTtlSeconds(session));
+  await persistRefreshToken(user.userId, refresh, req, sessionDivisionId, session);
   const access = signAccessToken({
     sub: String(user.userId),
     role: user.role,
     name: user.fullName ?? user.username,
+    sid: session.id,
     ...(sessionDivisionId !== null ? { divisionId: sessionDivisionId } : {}),
   });
-  const refresh = await signRefreshToken(user.userId);
-  await persistRefreshToken(user.userId, refresh, req, sessionDivisionId);
 
   return { kind: 'complete', user, access, refresh };
 }
@@ -220,6 +320,7 @@ function buildRefreshResult(
   userRow: typeof appUser.$inferSelect,
   preservedDivisionId: number | null,
   nextRefresh: SignedRefreshToken,
+  session: SessionRef,
 ): RefreshResult {
   const user: AuthenticatedUser = {
     userId: userRow.userId,
@@ -237,6 +338,7 @@ function buildRefreshResult(
     sub: String(user.userId),
     role: user.role,
     name: user.fullName ?? user.username,
+    sid: session.id,
     ...(preservedDivisionId !== null ? { divisionId: preservedDivisionId } : {}),
   });
 
@@ -268,7 +370,16 @@ async function claimAndRotate(
 ): Promise<RefreshResult> {
   let current = startRow;
   for (let hops = 0; hops < 50; hops++) {
-    const nextRefresh = await signRefreshToken(userRow.userId);
+    // Re-derived on every hop: a lost race moves `current` to the winner's
+    // row, whose session (possibly just adopted) must be the one continued.
+    const session = sessionOf(current);
+    const ttl = refreshTtlSeconds(session);
+    if (ttl <= 0) {
+      // Absolute lifetime reached, however recently the user was active.
+      await revokeSession(session.id);
+      throw new HttpError(401, 'SESSION_EXPIRED', 'Your session has expired. Please sign in again.');
+    }
+    const nextRefresh = await signRefreshToken(userRow.userId, ttl);
     const tokenId = current.tokenId;
     const claimed = await db.transaction(async (tx) => {
       // The child row must exist before the parent's replacedBy FK can
@@ -285,6 +396,8 @@ async function claimAndRotate(
         userAgent: req.get('user-agent') ?? null,
         ipAddress: req.ip ?? null,
         selectedDivisionId: preservedDivisionId,
+        sessionId: session.id,
+        sessionStartedAt: session.startedAt,
       });
       const updated = await tx
         .update(refreshToken)
@@ -295,7 +408,7 @@ async function claimAndRotate(
     });
 
     if (claimed) {
-      return buildRefreshResult(userRow, preservedDivisionId, nextRefresh);
+      return buildRefreshResult(userRow, preservedDivisionId, nextRefresh, session);
     }
 
     // Lost the race — someone else rotated `current` a moment earlier.
@@ -334,6 +447,12 @@ async function finishRefresh(row: RefreshTokenRow, req: Request): Promise<Refres
 
   if (!userRow || !userRow.isActive) {
     throw new HttpError(401, 'USER_INACTIVE', 'User account is inactive');
+  }
+  if (isDemoLoginBlocked(userRow.username)) {
+    // A demo session opened before the block took effect ends here.
+    if (row.sessionId) await revokeSession(row.sessionId);
+    logger.warn('auth.refresh.demo_account_blocked', { userId: userRow.userId, username: userRow.username });
+    throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token invalid');
   }
 
   // PD sessions carry over the selected division so refreshes don't drop it.
@@ -374,6 +493,11 @@ export async function refresh(cookieValue: string, req: Request): Promise<Refres
       .update(refreshToken)
       .set({ revokedAt: new Date() })
       .where(and(eq(refreshToken.userId, row.userId), isNull(refreshToken.revokedAt)));
+    logger.warn('auth.refresh.reuse_detected', {
+      userId: row.userId,
+      ip: req.ip ?? null,
+      action: 'all sessions of the user revoked',
+    });
     throw new HttpError(401, 'INVALID_REFRESH', 'Refresh token reuse detected');
   }
   if (row.expiresAt.getTime() <= Date.now()) {
@@ -388,18 +512,35 @@ export async function refresh(cookieValue: string, req: Request): Promise<Refres
   return finishRefresh(row, req);
 }
 
-export async function logout(cookieValue: string | undefined): Promise<void> {
-  if (!cookieValue) return;
+/**
+ * Ends the session the cookie belongs to: every live token of the session is
+ * revoked (not only the presented one, which may be a stale copy from another
+ * tab), so its access tokens stop working at once (finding S-15). Returns
+ * the user id for the security log, or null when there was nothing to end.
+ */
+export async function logout(cookieValue: string | undefined): Promise<{ userId: number | null }> {
+  if (!cookieValue) return { userId: null };
   let parsed;
   try {
     parsed = parseRefreshCookie(cookieValue);
   } catch {
-    return;
+    return { userId: null };
   }
-  await db
-    .update(refreshToken)
-    .set({ revokedAt: new Date() })
-    .where(and(eq(refreshToken.tokenId, parsed.payload.jti), isNull(refreshToken.revokedAt)));
+  const [row] = await db
+    .select({ userId: refreshToken.userId, sessionId: refreshToken.sessionId })
+    .from(refreshToken)
+    .where(eq(refreshToken.tokenId, parsed.payload.jti))
+    .limit(1);
+  if (!row) return { userId: null };
+  if (row.sessionId) {
+    await revokeSession(row.sessionId);
+  } else {
+    await db
+      .update(refreshToken)
+      .set({ revokedAt: new Date() })
+      .where(and(eq(refreshToken.tokenId, parsed.payload.jti), isNull(refreshToken.revokedAt)));
+  }
+  return { userId: row.userId };
 }
 
 export async function getUserById(

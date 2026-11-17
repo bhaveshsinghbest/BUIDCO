@@ -15,6 +15,7 @@ import { useGetLookupsQuery } from '../../app/api/lookupsApi';
 import { useImportProjectsMutation } from '../../app/api/projectsApi';
 import { useCreateFundsUcMutation } from '../../app/api/fundsUcApi';
 import { Button } from '../ui/button';
+import { FUND_AGENCY_OPTIONS, FUNDING_SOURCE_OPTIONS, UC_SENT_TO_OPTIONS, UC_STATUS_OPTIONS } from '../../lib/fundsUc';
 import type { FundingSource, FundsUcCreatePayload, ProjectUpsertPayload } from '../../types/api';
 
 const SHEET_NAME = 'Project Register';
@@ -30,9 +31,6 @@ const PROJECT_STAGE_V2 = [
 const STATUSES = ['Not Started', 'In Progress', 'Completed', 'On Hold', 'Delayed'] as const;
 const PRIORITIES = ['High', 'Medium', 'Low', 'N/A'] as const;
 const OM_STATUSES = ['Not Started', 'Ongoing', 'Expiring Soon', 'Expired', 'Handed Over to ULB'] as const;
-const FUNDING_SOURCES: FundingSource[] = [
-  'Central - EAP', 'Central - Non-EAP', 'Central - State Share', 'State Funded',
-];
 
 type FieldKind = 'text' | 'number' | 'percent' | 'date' | 'enum' | 'yesno' | 'url' | 'sector' | 'division' | 'schemes';
 
@@ -127,28 +125,41 @@ const FIELD_DEFS: FieldDef[] = [
   { header: 'O&M Remarks', key: 'omRemarks', kind: 'text' },
 ];
 
-type FundingFieldKind = 'enum' | 'number';
+type FundingFieldKind = 'enum' | 'number' | 'date' | 'text';
 interface FundingFieldDef {
   header: string;
+  /** Other headers accepted for the same column. */
+  aliases?: readonly string[];
   key: keyof Omit<FundsUcCreatePayload, 'projectId'>;
   kind: FundingFieldKind;
   options?: readonly string[];
 }
 
 /**
- * Funding Source lives on a separate entity (project_funds_uc), not the
+ * Funds & UC lives on a separate entity (project_funds_uc), not the
  * project row itself — parsed independently from FIELD_DEFS and, after the
  * project is created, saved via its own createFundsUc call per row (see
  * handleImport). A blank "Funding Source" cell means the row simply has no
- * funding entry — every one of these columns is optional.
+ * funding entry — every one of these columns is optional, so a template
+ * without the Funds Flow columns still imports exactly as before.
  */
 const FUNDING_FIELD_DEFS: FundingFieldDef[] = [
-  { header: 'Funding Source of the Project', key: 'fundingSource', kind: 'enum', options: FUNDING_SOURCES },
-  { header: 'Opening Balance (Rs. Cr.)', key: 'openingBalanceCr', kind: 'number' },
-  { header: 'Grant Received (Rs. Cr.)', key: 'grantReceivedCr', kind: 'number' },
-  { header: 'Expenditure Incurred (Rs. Cr.)', key: 'expenditureIncurredCr', kind: 'number' },
+  { header: 'Funding Source of the Project', key: 'fundingSource', kind: 'enum', options: FUNDING_SOURCE_OPTIONS },
+  { header: 'Sanctioning Agency', key: 'fundSanctionAgency', kind: 'enum', options: FUND_AGENCY_OPTIONS },
+  { header: 'Amount Sanctioned by Agency (Rs. Cr.)', key: 'fundSanctionedAmountCr', kind: 'number' },
+  { header: 'Sanction No. / Letter Ref.', key: 'sanctionNo', kind: 'text' },
+  { header: 'Sanction Date (Funds)', key: 'sanctionDate', kind: 'date' },
+  { header: 'Released by Agency to UDHD (Rs. Cr.)', key: 'fundReleasedToUdhdCr', kind: 'number' },
+  { header: 'Opening Balance (Rs. Cr.)', aliases: ['UC Opening Balance (Rs. Cr.)'], key: 'openingBalanceCr', kind: 'number' },
+  { header: 'Grant Received (Rs. Cr.)', aliases: ['Received by BUIDCo (Rs. Cr.)'], key: 'grantReceivedCr', kind: 'number' },
+  { header: 'Expenditure Incurred (Rs. Cr.)', aliases: ['Paid / Released by BUIDCo (Rs. Cr.)'], key: 'expenditureIncurredCr', kind: 'number' },
   { header: 'Central Share (%)', key: 'centralSharePct', kind: 'number' },
   { header: 'State Share (%)', key: 'stateSharePct', kind: 'number' },
+  { header: 'UC Submission Date', key: 'ucSubmittedDate', kind: 'date' },
+  { header: 'UC Sent To (Department)', key: 'ucSentTo', kind: 'enum', options: UC_SENT_TO_OPTIONS },
+  { header: 'Amount Covered by Submitted UC (Rs. Cr.)', key: 'ucAmountCertifiedCr', kind: 'number' },
+  { header: 'UC Status (Manual Override)', key: 'ucStatusOverride', kind: 'enum', options: UC_STATUS_OPTIONS },
+  { header: 'UC / Funds Remarks', key: 'remarks', kind: 'text' },
 ];
 
 function normalizeHeader(s: string): string {
@@ -270,7 +281,7 @@ function parseWorkbook(
     const header = normalizeHeader(cellText(cell.value));
     const def = FIELD_DEFS.find((f) => f.header === header);
     if (def) colByKey.set(def.key, colNumber);
-    const fundingDef = FUNDING_FIELD_DEFS.find((f) => f.header === header);
+    const fundingDef = FUNDING_FIELD_DEFS.find((f) => f.header === header || f.aliases?.includes(header));
     if (fundingDef) fundingColByKey.set(fundingDef.key, colNumber);
   });
 
@@ -328,6 +339,10 @@ function parseWorkbook(
             messages.push(`"${def.header}" must be a number.`);
           } else if (n !== undefined && def.kind === 'percent' && (n < 0 || n > 100)) {
             messages.push(`"${def.header}" must be between 0 and 100.`);
+          } else if (n !== undefined && n < 0) {
+            // ₹ amounts and O&M months — the API rejects negatives, so say so
+            // on the row instead of failing the whole file with a generic 400.
+            messages.push(`"${def.header}" cannot be negative.`);
           } else {
             payload[def.key] = n;
           }
@@ -410,10 +425,10 @@ function parseWorkbook(
       : undefined;
     const fundingSourceText = cellText(fundingSourceRaw);
     if (fundingSourceText !== '') {
-      const fundingSource = matchEnum(fundingSourceRaw, FUNDING_SOURCES);
+      const fundingSource = matchEnum(fundingSourceRaw, FUNDING_SOURCE_OPTIONS);
       if (fundingSource === null) {
         messages.push(
-          `"Funding Source of the Project" value "${fundingSourceText}" is not valid — expected one of: ${FUNDING_SOURCES.join(', ')}.`,
+          `"Funding Source of the Project" value "${fundingSourceText}" is not valid — expected one of: ${FUNDING_SOURCE_OPTIONS.join(', ')}.`,
         );
       } else if (fundingSource !== undefined) {
         const getFundingRaw = (key: string): unknown => {
@@ -421,13 +436,28 @@ function parseWorkbook(
           return col ? row.getCell(col).value : undefined;
         };
         const money: Record<string, number | undefined> = {};
-        for (const key of ['openingBalanceCr', 'grantReceivedCr', 'expenditureIncurredCr', 'centralSharePct', 'stateSharePct']) {
-          const n = cellNumber(getFundingRaw(key));
-          if (n === null) {
-            const def = FUNDING_FIELD_DEFS.find((f) => f.key === key);
-            messages.push(`"${def?.header ?? key}" must be a number.`);
+        // Funds Flow stage fields beyond the original ledger columns.
+        const extra: Record<string, string | number | null> = {};
+        for (const def of FUNDING_FIELD_DEFS) {
+          if (def.key === 'fundingSource') continue;
+          const raw = getFundingRaw(def.key);
+          if (def.kind === 'number') {
+            const n = cellNumber(raw);
+            if (n === null) messages.push(`"${def.header}" must be a number.`);
+            else if (n !== undefined && n < 0) messages.push(`"${def.header}" cannot be negative.`);
+            else money[def.key] = n ?? undefined;
+          } else if (def.kind === 'enum') {
+            const v = matchEnum(raw, def.options ?? []);
+            if (v === null) {
+              messages.push(`"${def.header}" value "${cellText(raw)}" is not valid — expected one of: ${(def.options ?? []).join(', ')}.`);
+            } else extra[def.key] = v ?? null;
+          } else if (def.kind === 'date') {
+            const d = cellDate(raw);
+            if (d === null) messages.push(`"${def.header}" must be a date (YYYY-MM-DD or DD/MM/YYYY).`);
+            else extra[def.key] = d ?? null;
           } else {
-            money[key] = n ?? undefined;
+            const t = cellText(raw);
+            extra[def.key] = t === '' ? null : t;
           }
         }
         const isCentralStateShare = fundingSource === 'Central - State Share';
@@ -443,7 +473,11 @@ function parseWorkbook(
           }
         }
         fundingPayload = {
+          ...(extra as Partial<Omit<FundsUcCreatePayload, 'projectId'>>),
           fundingSource: fundingSource as FundingSource,
+          fundSanctionedAmountCr: money.fundSanctionedAmountCr ?? null,
+          fundReleasedToUdhdCr: money.fundReleasedToUdhdCr ?? null,
+          ucAmountCertifiedCr: money.ucAmountCertifiedCr ?? null,
           openingBalanceCr: money.openingBalanceCr ?? 0,
           grantReceivedCr: money.grantReceivedCr ?? 0,
           expenditureIncurredCr: money.expenditureIncurredCr ?? 0,

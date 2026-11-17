@@ -24,6 +24,7 @@ import { PriorityBadge } from './PriorityBadge';
 import { ProgressBar } from './ProgressBar';
 import { ProjectProfileModal } from './ProjectProfileModal';
 import { StatusBadge } from './StatusBadge';
+import { safeHttpUrl } from '../../lib/safeUrl';
 
 /** Columns match the reference JSX register (with schema-backed field names). */
 export interface Column {
@@ -408,9 +409,9 @@ const COLUMNS: Column[] = [
     align: 'center',
     defaultVisible: false,
     render: (r) =>
-      r.geoTaggingUrl ? (
+      safeHttpUrl(r.geoTaggingUrl) ? (
         <a
-          href={r.geoTaggingUrl}
+          href={safeHttpUrl(r.geoTaggingUrl) ?? undefined}
           target="_blank"
           rel="noreferrer noopener"
           className="text-[11px] font-semibold text-[#1D4ED8] hover:underline"
@@ -456,8 +457,6 @@ const COLUMNS: Column[] = [
     sortValue: (r) => r.nitDate,
   },
 ];
-
-export const ALL_COLUMN_KEYS = COLUMNS.map((c) => c.key);
 
 /** Same joined-names text the 'schemes' column already exports, reused for its filter. */
 function schemesText(row: ProjectListItem, ctx: LookupCtx): string {
@@ -797,9 +796,14 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
     setExportError(null);
     setExporting(format);
     try {
-      // Column filters apply to the export too, same as visible columns —
-      // fetchAllRows() bypasses pagination but not the user's column filters.
-      const allRows = (await fetchAllRows()).filter(matchesAllFilters);
+      // Column filters AND the Delayed Projects window apply to the export,
+      // exactly as they do to the visible rows (filteredRows above) —
+      // fetchAllRows() bypasses pagination, not the user's filters. The
+      // delay window used to be left out, so "More than 90 Days" on screen
+      // still downloaded every project.
+      const allRows = (await fetchAllRows()).filter(
+        (r) => matchesAllFilters(r) && matchesDelayWindow(r, delayWindow),
+      );
       if (format === 'excel') await downloadProjectsExcel(visibleColumns, allRows, ctx);
       else if (format === 'pdf') await downloadProjectsPdf(visibleColumns, allRows, ctx);
       else await downloadProjectsPptx(visibleColumns, allRows, ctx);
@@ -987,7 +991,12 @@ export function ProjectsTable({ rows, lookups, isFetching, fetchAllRows }: Proje
                   {/* Task 9 — the table keeps its headers and filter controls;
                       only the body reports the empty result, so the user can
                       adjust the filter that produced it. */}
-                  <div className="text-[13px] font-semibold text-[#374151]">No Projects Found</div>
+                  {/* Bilingual, because the search box now accepts Hindi
+                      (bhaveshTask.md Task 8): someone who typed a Devanagari
+                      query should not be answered only in English. */}
+                  <div className="text-[13px] font-semibold text-[#374151]">
+                    No projects found / कोई परियोजना नहीं मिली
+                  </div>
                   <div className="mt-1 text-[11.5px] text-[#6B7280]">
                     No projects match the selected filters.
                   </div>

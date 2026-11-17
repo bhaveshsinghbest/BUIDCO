@@ -98,6 +98,16 @@ export const selectHasRole = (s: WithAuth, ...roles: readonly UserPublic['role']
   return role !== undefined && roles.includes(role);
 };
 
+/**
+ * "Can view projects" (MD bypasses). The API refuses every project-data
+ * endpoint without it (security finding S-03); the UI hides those screens
+ * so the user is not shown pages that can only fail.
+ */
+export const selectCanViewProjects = (s: WithAuth): boolean => {
+  const u = s.auth.user;
+  return !!u && (u.role === 'MD' || u.canViewProjects);
+};
+
 /** True when the current user can perform the given project action (MD bypasses flags). */
 export const selectCanCreateProjects = (s: WithAuth): boolean => {
   const u = s.auth.user;

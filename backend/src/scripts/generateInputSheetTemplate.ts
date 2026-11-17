@@ -7,7 +7,7 @@
  * Every column here corresponds 1:1 to a real Input Sheet field (verified
  * against BasicInfoSection / PhaseDatesSection / ProgressFinancialSection /
  * ContractSecuritySection / GeoTaggingSection / ActionRemarksSection /
- * OmDetailsSection / FundingSourceSection). Computed/auto fields (Delay
+ * OmDetailsSection / FundsUcSection). Computed/auto fields (Delay
  * Days, Sanctioned Cost, Total CoS Count, Total EoT Days, Region — derived
  * from Division) are deliberately excluded — they're display-only, not
  * something a bulk import should set.
@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url';
 import ExcelJS from 'exceljs';
 import { db, pool } from '../db/client.js';
 import { division, scheme, sector } from '../db/schema.js';
-import { fundingSources } from '../db/enums.js';
+import { fundingSources, fundSanctionAgencies, fundsUcStatuses, ucSentToOptions } from '../db/enums.js';
 
 /* ============================================================
  * Column catalogue — one row per Input Sheet field, grouped and
@@ -142,13 +142,25 @@ const COLUMNS: ColumnSpec[] = [
   { section: '08 · O&M', header: 'O&M Status (Manual Override)', key: 'omStatusOverride', type: 'enum', enumValues: OM_STATUS_ENUM, width: 22 },
   { section: '08 · O&M', header: 'O&M Remarks', key: 'omRemarks', type: 'text', width: 30 },
 
-  /* 09 · Funding Source of the Project */
-  { section: '09 · Funding Source', header: 'Funding Source of the Project', key: 'fundingSource', type: 'enum', enumValues: fundingSources, width: 26 },
-  { section: '09 · Funding Source', header: 'Opening Balance (Rs. Cr.)', key: 'openingBalanceCr', type: 'number', width: 20 },
-  { section: '09 · Funding Source', header: 'Grant Received (Rs. Cr.)', key: 'grantReceivedCr', type: 'number', width: 20 },
-  { section: '09 · Funding Source', header: 'Expenditure Incurred (Rs. Cr.)', key: 'expenditureIncurredCr', type: 'number', width: 22 },
-  { section: '09 · Funding Source', header: 'Central Share (%)', key: 'centralSharePct', type: 'percent', note: 'Only when Funding Source = "Central - State Share". Central % + State % must not exceed 100.', width: 18 },
-  { section: '09 · Funding Source', header: 'State Share (%)', key: 'stateSharePct', type: 'percent', note: 'Only when Funding Source = "Central - State Share". Central % + State % must not exceed 100.', width: 18 },
+  /* 09 · Funds & UC — Sanction → Released to UDHD → Received by BUIDCo → Paid → UC.
+   * The first six headers are unchanged from the earlier Funding Source template,
+   * so files filled in before still import. */
+  { section: '09 · Funds & UC', header: 'Funding Source of the Project', key: 'fundingSource', type: 'enum', enumValues: fundingSources, note: 'Required for any Funds & UC column on this row to be imported.', width: 26 },
+  { section: '09 · Funds & UC', header: 'Sanctioning Agency', key: 'fundSanctionAgency', type: 'enum', enumValues: fundSanctionAgencies, width: 24 },
+  { section: '09 · Funds & UC', header: 'Amount Sanctioned by Agency (Rs. Cr.)', key: 'fundSanctionedAmountCr', type: 'number', note: 'Leave blank to use the project Sanctioned Cost (Revised AA, else AA).', width: 22 },
+  { section: '09 · Funds & UC', header: 'Sanction No. / Letter Ref.', key: 'sanctionNo', type: 'text', width: 22 },
+  { section: '09 · Funds & UC', header: 'Sanction Date (Funds)', key: 'fundsSanctionDate', type: 'date', width: 18 },
+  { section: '09 · Funds & UC', header: 'Released by Agency to UDHD (Rs. Cr.)', key: 'fundReleasedToUdhdCr', type: 'number', note: 'Leave blank if not known: it is then assumed equal to the amount received by BUIDCo.', width: 22 },
+  { section: '09 · Funds & UC', header: 'Opening Balance (Rs. Cr.)', key: 'openingBalanceCr', type: 'number', note: 'UC opening balance with BUIDCo.', width: 20 },
+  { section: '09 · Funds & UC', header: 'Grant Received (Rs. Cr.)', key: 'grantReceivedCr', type: 'number', note: 'Received by BUIDCo.', width: 20 },
+  { section: '09 · Funds & UC', header: 'Expenditure Incurred (Rs. Cr.)', key: 'expenditureIncurredCr', type: 'number', note: 'Paid / released by BUIDCo.', width: 22 },
+  { section: '09 · Funds & UC', header: 'Central Share (%)', key: 'centralSharePct', type: 'percent', note: 'Only when Funding Source = "Central - State Share". Central % + State % must not exceed 100.', width: 18 },
+  { section: '09 · Funds & UC', header: 'State Share (%)', key: 'stateSharePct', type: 'percent', note: 'Only when Funding Source = "Central - State Share". Central % + State % must not exceed 100.', width: 18 },
+  { section: '09 · Funds & UC', header: 'UC Submission Date', key: 'ucSubmittedDate', type: 'date', width: 18 },
+  { section: '09 · Funds & UC', header: 'UC Sent To (Department)', key: 'ucSentTo', type: 'enum', enumValues: ucSentToOptions, width: 22 },
+  { section: '09 · Funds & UC', header: 'Amount Covered by Submitted UC (Rs. Cr.)', key: 'ucAmountCertifiedCr', type: 'number', width: 22 },
+  { section: '09 · Funds & UC', header: 'UC Status (Manual Override)', key: 'ucStatusOverride', type: 'enum', enumValues: fundsUcStatuses, note: 'Leave blank to use Submitted / Overdue from the UC date.', width: 22 },
+  { section: '09 · Funds & UC', header: 'UC / Funds Remarks', key: 'fundsRemarks', type: 'text', width: 30 },
 ];
 
 const SECTION_COLOR: Record<string, string> = {
@@ -159,7 +171,7 @@ const SECTION_COLOR: Record<string, string> = {
   '06 · GeoTagging': 'FF0EA5E9',
   '07 · Action & Remarks': 'FFB91C1C',
   '08 · O&M': 'FF6B7280',
-  '09 · Funding Source': 'FF7C3AED',
+  '09 · Funds & UC': 'FF7C3AED',
 };
 
 /* ============================================================

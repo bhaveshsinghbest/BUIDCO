@@ -1,16 +1,16 @@
-import { and, desc, eq, isNull } from 'drizzle-orm';
+import { and, desc, eq, isNull, lt, sql } from 'drizzle-orm';
 import type { Request } from 'express';
 import { db } from '../db/client.js';
 import type { UserRole } from '../db/enums.js';
 import { appUser, passwordResetOtp, refreshToken } from '../db/schema.js';
 import { recordAudit } from '../lib/audit.js';
 import { diffAppUser } from '../lib/auditLabels.js';
-import { sendApprovalRequestEmail, sendOtpEmail, sendOtpSms } from '../lib/mailer.js';
+import { logger } from '../lib/logger.js';
+import { isEmailDeliveryConfigured, sendApprovalRequestEmail, sendOtpEmail } from '../lib/mailer.js';
 import {
   generateOtp,
   hashOtp,
   maskEmail,
-  maskMobile,
   parseResetToken,
   signResetToken,
   verifyOtp as compareOtp,
@@ -35,12 +35,36 @@ function requestFingerprint(req: Request): { userAgent: string | null; ip: strin
   return { userAgent: req.get('user-agent') ?? null, ip: req.ip ?? null };
 }
 
+/**
+ * Refuses a reset-code request that cannot be delivered (finding S-04):
+ *   - "mobile": no SMS gateway is approved, so the channel is withdrawn;
+ *   - no SMTP: nothing can be sent at all.
+ * Checked before any user lookup, so the answer is the same for every
+ * username and reveals nothing about accounts.
+ */
+export function assertOtpDeliveryPossible(channel: OtpChannel): void {
+  if (channel !== 'email') {
+    throw new HttpError(
+      400,
+      'CHANNEL_UNAVAILABLE',
+      'Codes can only be sent by e-mail. Mobile (SMS) delivery is not available.',
+    );
+  }
+  if (!isEmailDeliveryConfigured()) {
+    throw new HttpError(
+      503,
+      'OTP_DELIVERY_UNAVAILABLE',
+      'Password reset by e-mail is not available on this server. Please contact your administrator.',
+    );
+  }
+}
+
 export interface RequestPasswordResetResult {
   found: boolean;
   /** Only MD self-serves directly; every other role goes through the request/approval workflow. */
   selfService: boolean;
+  /** E-mail is the only delivery channel; the mobile number is no longer disclosed (S-04). */
   maskedEmail: string | null;
-  maskedMobile: string | null;
   /** Present only when found && !selfService — drives the non-MD Forgot Password UI state. */
   requestStatus?: 'none' | 'pending' | 'approved';
   /** Present only when requestStatus === 'approved' — the channel fixed at request-submission time. */
@@ -59,15 +83,14 @@ export interface RequestPasswordResetResult {
 export async function requestPasswordReset(username: string): Promise<RequestPasswordResetResult> {
   const [user] = await db.select().from(appUser).where(eq(appUser.username, username)).limit(1);
   if (!user || !user.isActive) {
-    return { found: false, selfService: false, maskedEmail: null, maskedMobile: null };
+    return { found: false, selfService: false, maskedEmail: null };
   }
 
   const role = user.role as UserRole;
   const maskedEmail = user.email ? maskEmail(user.email) : null;
-  const maskedMobile = user.mobileNumber ? maskMobile(user.mobileNumber) : null;
 
   if (role === 'MD') {
-    return { found: true, selfService: true, maskedEmail, maskedMobile };
+    return { found: true, selfService: true, maskedEmail };
   }
 
   const { status, channel } = await requestService.getLatestRequestStatus(user.userId);
@@ -75,7 +98,6 @@ export async function requestPasswordReset(username: string): Promise<RequestPas
     found: true,
     selfService: false,
     maskedEmail,
-    maskedMobile,
     requestStatus: status,
     ...(channel ? { channel } : {}),
     approverRolesLabel: approverRolesLabel(role),
@@ -89,6 +111,8 @@ export async function requestPasswordReset(username: string): Promise<RequestPas
  * Rate limiting (route layer) is what actually bounds abuse here.
  */
 export async function sendOtp(username: string, channel: OtpChannel, req: Request): Promise<void> {
+  assertOtpDeliveryPossible(channel);
+
   const [user] = await db.select().from(appUser).where(eq(appUser.username, username)).limit(1);
   if (!user || !user.isActive) return;
 
@@ -105,9 +129,8 @@ export async function sendOtp(username: string, channel: OtpChannel, req: Reques
     if (!approved) return;
     approverEmails = await requestService.getEligibleApproverEmails(role);
     if (approverEmails.length === 0) return;
-  } else {
-    const contact = channel === 'email' ? user.email : user.mobileNumber;
-    if (!contact) return;
+  } else if (!user.email) {
+    return;
   }
 
   // Invalidate any previous unconsumed OTP for this user+channel so only
@@ -137,22 +160,23 @@ export async function sendOtp(username: string, channel: OtpChannel, req: Reques
   });
 
   if (role !== 'MD') {
-    await Promise.all(
-      approverEmails.map((email) =>
-        sendApprovalRequestEmail(email, user.username, role, otp).catch(() => {
-          process.stderr.write('warn: failed to send approval-request OTP email\n');
-        }),
-      ),
+    const results = await Promise.allSettled(
+      approverEmails.map((email) => sendApprovalRequestEmail(email, user.username, role, otp)),
     );
+    const failed = results.filter((r) => r.status === 'rejected').length;
+    // Never the code itself, nor the approvers' addresses (S-04, S-11).
+    logger.info('auth.otp.issued', {
+      userId: user.userId,
+      role,
+      deliveredTo: 'approvers',
+      approverCount: approverEmails.length,
+      deliveryFailures: failed,
+    });
     return;
   }
 
-  const contact = (channel === 'email' ? user.email : user.mobileNumber) as string;
-  if (channel === 'email') {
-    await sendOtpEmail(contact, otp);
-  } else {
-    sendOtpSms(contact, otp);
-  }
+  await sendOtpEmail(user.email as string, otp);
+  logger.info('auth.otp.issued', { userId: user.userId, role, deliveredTo: 'self' });
 }
 
 export interface VerifyOtpResult {
@@ -188,29 +212,56 @@ export async function verifyOtp(
   if (otpRow.expiresAt.getTime() <= Date.now()) {
     throw new HttpError(400, 'OTP_EXPIRED', 'This code has expired. Request a new one.');
   }
-  if (otpRow.attempts >= MAX_OTP_ATTEMPTS) {
+
+  // Reserve the attempt BEFORE comparing (finding S-27). The old code read
+  // the counter, compared, then wrote counter+1, so parallel guesses all
+  // read the same value and together exceeded MAX_OTP_ATTEMPTS. A single
+  // UPDATE ... WHERE attempts < MAX ... RETURNING is atomic: PostgreSQL
+  // re-checks the condition under the row lock, so however many requests
+  // race, at most MAX_OTP_ATTEMPTS of them get past this point.
+  const [reserved] = await db
+    .update(passwordResetOtp)
+    .set({ attempts: sql`${passwordResetOtp.attempts} + 1` })
+    .where(
+      and(
+        eq(passwordResetOtp.otpId, otpRow.otpId),
+        isNull(passwordResetOtp.consumedAt),
+        lt(passwordResetOtp.attempts, MAX_OTP_ATTEMPTS),
+      ),
+    )
+    .returning({ attempts: passwordResetOtp.attempts });
+  if (!reserved) {
+    logger.warn('auth.otp.locked', { userId: user.userId });
     throw new HttpError(429, 'OTP_LOCKED', 'Too many incorrect attempts. Request a new code.');
   }
 
   const ok = await compareOtp(code, otpRow.otpHash);
   if (!ok) {
-    await db
-      .update(passwordResetOtp)
-      .set({ attempts: otpRow.attempts + 1 })
-      .where(eq(passwordResetOtp.otpId, otpRow.otpId));
+    logger.warn('auth.otp.verify_failure', {
+      userId: user.userId,
+      attempt: reserved.attempts,
+      maxAttempts: MAX_OTP_ATTEMPTS,
+    });
     throw new HttpError(400, 'INVALID_OTP', INVALID_OTP_MESSAGE);
   }
 
+  // Single use, also atomic: of two simultaneous correct submissions only
+  // one consumes the code and receives a reset token.
   const reset = await signResetToken(otpRow.otpId);
-  await db
+  const [consumed] = await db
     .update(passwordResetOtp)
     .set({
       consumedAt: new Date(),
       resetTokenHash: reset.hash,
       resetTokenExpiresAt: new Date(Date.now() + RESET_TOKEN_TTL_MS),
     })
-    .where(eq(passwordResetOtp.otpId, otpRow.otpId));
+    .where(and(eq(passwordResetOtp.otpId, otpRow.otpId), isNull(passwordResetOtp.consumedAt)))
+    .returning({ otpId: passwordResetOtp.otpId });
+  if (!consumed) {
+    throw new HttpError(400, 'INVALID_OTP', INVALID_OTP_MESSAGE);
+  }
 
+  logger.info('auth.otp.verified', { userId: user.userId });
   return { resetToken: reset.value };
 }
 
@@ -287,5 +338,10 @@ export async function resetPassword(
       projectNameSnapshot: null,
       changes: diffAppUser({ passwordChanged: 'previous' }, { passwordChanged: 'updated' }),
     });
+  });
+
+  logger.info('auth.password_reset.completed', {
+    userId: user.userId,
+    effect: 'all sessions of the user revoked',
   });
 }

@@ -1,157 +1,385 @@
-1-Analyze the Entire Project – Review the complete project and implement all required changes without affecting any existing functionality, responsiveness, or project-related features.
+Phase 1 – Critical Security Fixes
 
-2-## Complete End-to-End Software Testing & Production Readiness Command
+S-01 – Rotate Exposed Credentials and Secure Git History
 
-### Phase 1 — Understand the Application
+Rotate the leaked Upstash Redis token.
 
-1. Analyze the complete codebase, including frontend, backend, database, APIs, authentication, authorization, configuration, integrations, and existing workflows.
-2. Identify all modules, pages, features, user roles, APIs, database tables, and major business workflows.
-3. Understand the expected behavior from the existing code, requirements, and UI.
-4. Do not remove, break, or unnecessarily modify any existing functionality.
+Change the exposed database password.
 
-### Phase 2 — Unit Testing
+Verify that production JWT secrets are different from previously leaked secrets.
 
-5. Test individual functions, components, utilities, services, validations, and business logic.
-6. Identify missing or failing unit tests.
-7. Fix defects found during unit testing.
-8. Re-run all affected tests after fixes.
+Identify all locations where exposed credentials may exist, including source code, configuration files and Git history.
 
-### Phase 3 — Integration Testing
+Review and decide whether Git history needs to be purged.
 
-9. Test frontend-to-backend communication.
-10. Test backend-to-database communication.
-11. Test API-to-API and external service integrations.
-12. Verify authentication, authorization, sessions, transactions, and data flow between modules.
-13. Fix and re-test all integration failures.
+Ensure all credentials are stored securely using environment variables or an approved secrets-management solution.
 
-### Phase 4 — Functional Testing
+S-02 – Remove and Secure Demo Accounts
 
-14. Test every feature and module against its expected functionality.
-15. Test all buttons, links, forms, dropdowns, filters, search, sorting, pagination, calculations, validations, uploads, downloads, CRUD operations, status changes, and workflows.
-16. Test positive, negative, boundary, empty, invalid, and unexpected inputs.
-17. Verify that error messages and validation messages are correct and user-friendly.
-18. Ensure that existing functionality continues to work.
+Check all live databases for accounts matching the demo_* pattern.
 
-### Phase 5 — UI/UX Testing
+Disable or remove unauthorized demo accounts.
 
-19. Check every page and screen visually and functionally.
-20. Verify buttons, menus, cards, tables, forms, modals, navigation, spacing, alignment, text, icons, and loading/error/empty states.
-21. Verify that clickable elements actually perform the intended action.
-22. Check for broken layouts, overlapping elements, hidden content, inconsistent styling, and unnecessary UI changes.
+Move demo passwords from seed files and test files into environment variables.
 
-### Phase 6 — API Testing
+Ensure demo credentials cannot be used in the production environment.
 
-23. Test every available API endpoint.
-24. Verify HTTP methods, request parameters, request bodies, response structures, status codes, validation, authentication, authorization, error handling, and edge cases.
-25. Test unauthorized and invalid requests.
-26. Verify that APIs do not expose unnecessary or sensitive information.
+Phase 2 – High-Priority Security Fixes
 
-### Phase 7 — Database Testing
+S-03 – Correct Role-Based Access Control (RBAC) Permissions
 
-27. Test all important database operations: CREATE, READ, UPDATE, DELETE.
-28. Verify relationships, constraints, indexes, transactions, data validation, duplicate prevention, null handling, and data consistency.
-29. Verify that frontend and backend data exactly matches the database.
-30. Check migrations and ensure they do not unintentionally modify or delete existing production data.
+Review the existing "Can View Projects" permission.
 
-### Phase 8 — Regression Testing
+Identify all modules and pages controlled by this permission, including Projects, Dashboard, Funds and MoM.
 
-31. Re-test all existing functionality after the new changes.
-32. Specifically test functionality that could be affected by the modified code.
-33. Compare important existing workflows before and after changes.
-34. Ensure that fixing one issue has not introduced another issue.
+Ensure unauthorized users cannot access restricted pages through direct URLs or API requests.
 
-### Phase 9 — Responsive & Compatibility Testing
+Maintain consistent permission enforcement across frontend routes and backend APIs.
 
-35. Test the application on desktop, tablet, and mobile screen sizes.
-36. Test different resolutions and orientations where applicable.
-37. Test major browsers such as Chrome, Edge, Firefox, and Safari where available.
-38. Check navigation, tables, forms, dashboards, buttons, menus, modals, and responsive layouts on all supported screen sizes.
-39. Ensure there is no horizontal scrolling or broken layout unless intentionally designed.
+S-04 – Secure Mobile OTP Authentication
 
-### Phase 10 — Performance Testing
+Integrate an authorized SMS gateway for mobile OTP delivery or remove the mobile OTP option if an SMS gateway is not approved.
 
-40. Test page load time, API response time, database queries, large datasets, and important workflows.
-41. Identify slow API calls, inefficient queries, unnecessary frontend rendering, memory issues, and other performance bottlenecks.
-42. Test the application with realistic and high-volume data where possible.
-43. Fix performance issues that could affect production users.
-44. Re-test performance after optimization.
+Ensure OTP values are never exposed in application logs, console output or error messages.
 
-### Phase 11 — Security Testing
+Secure OTP generation, validation, expiration and attempt tracking.
 
-45. Test authentication and authorization.
-46. Verify that users cannot access pages, APIs, records, or actions they are not authorized to access.
-47. Test input validation and common vulnerabilities such as SQL injection, XSS, CSRF, insecure direct object references, broken access control, insecure file uploads, exposed secrets, and sensitive data leakage.
-48. Check environment variables, API keys, passwords, tokens, logs, and configuration for accidental exposure.
-49. Do not expose or print sensitive credentials while testing.
-50. Fix security vulnerabilities where possible and re-test them.
+S-05 – Enforce NODE_ENV Configuration
 
-### Phase 12 — User Acceptance Testing (UAT)
+Modify the backend application to refuse startup when NODE_ENV is missing.
 
-51. Test the application from the perspective of each major user role.
-52. Execute complete real-world business workflows from beginning to end.
-53. Verify that the application behaves according to the intended business process.
-54. Identify anything that technically works but would be confusing, incorrect, or impractical for an actual user.
+Remove unsafe default environment configurations.
 
-### Phase 13 — Smoke & Final Sanity Testing
+Update local development, testing and E2E test configurations to provide the required environment variable explicitly.
 
-55. Create a clean production-like build.
-56. Verify that the application starts successfully.
-57. Verify frontend, backend, database, authentication, APIs, major pages, and critical workflows.
-58. Perform a final smoke test on all critical functionality.
-59. Re-test all previously fixed critical and high-priority issues.
+S-06 – Fix Dependency Vulnerabilities
 
-### Defect Management Rules
+Run npm audit in both frontend and backend applications.
 
-For every issue found, record:
+Apply non-breaking security fixes using npm audit fix.
 
-* Issue ID
-* Module/Page
-* Description
-* Steps to reproduce
-* Expected result
-* Actual result
-* Severity: Critical / High / Medium / Low
-* Root cause
-* Fix applied
-* Test performed after fix
-* Final status: Pass / Fail
+Review critical and high-severity dependency vulnerabilities.
 
-Do not simply report an issue if you can safely fix it. Fix the issue, then re-test it.
+Avoid introducing breaking dependency upgrades without compatibility testing.
 
-### Important Rules
+Re-run application tests and verify that existing functionality remains unaffected.
 
-* Do not assume that existing functionality works.
-* Do not test only the newly added features.
-* Test the complete application end-to-end.
-* Do not delete, disable, bypass, or weaken existing functionality merely to make tests pass.
-* Do not make unnecessary architectural changes.
-* Do not use fake test results.
-* Clearly distinguish between tests actually executed and tests that could not be executed because of missing tools, credentials, services, data, or environment access.
-* Never claim a test passed unless it was actually executed and verified.
-* Preserve existing data and functionality.
-* Before making database or production changes, clearly identify what will be changed and require explicit approval for destructive operations.
+S-07 – Remove Frontend Source Maps from Production Build
 
-### Final Production Readiness Report
+Configure the production build to disable source-map generation.
 
-After completing all testing, provide a final report containing:
+Remove previously generated source maps from frontend/dist/.
 
-1. Total tests performed
-2. Tests passed
-3. Tests failed
-4. Tests blocked/not executable
-5. Critical issues
-6. High-priority issues
-7. Medium/Low issues
-8. Issues fixed
-9. Regression issues found
-10. Security vulnerabilities
-11. Performance findings
-12. Responsive/compatibility findings
-13. Remaining known issues
-14. Overall Production Readiness: **READY / READY WITH CONDITIONS / NOT READY**
+Generate a fresh production build.
 
-Only mark the application **READY** if all critical production workflows pass and there are no unresolved Critical or High-severity defects that could affect production operation, security, data integrity, or core business functionality.
+Verify that no .map files are included in the final deployment package.
 
-Do not stop after finding the first issue. Continue testing the entire application until the complete testing sequence has been executed.
+S-08 – Review Confidential Documents and GitHub Repository Exposure
 
+Identify PDF and Word reports committed to Git.
 
+Get an authorized BUIDCo/UDHD officer to review whether these documents contain confidential information.
+
+Verify whether the GitHub repository is public or private.
+
+Remove unauthorized confidential documents from the repository and ensure sensitive historical content is appropriately addressed.
+
+S-09 – Review OneDrive Storage Security
+
+Review whether storing the project and its associated documents in OneDrive is permitted under departmental security policy.- it can be done only by MD
+
+Verify access permissions and sharing configurations.
+
+Ensure confidential government project information is not accessible through unauthorized sharing links.
+
+S-10 – Implement Database TLS Certificate Verification
+
+Configure database connections to validate TLS certificates.
+
+Ensure insecure certificate-validation bypasses are not used in production.
+
+Verify secure database connectivity in the government hosting environment.
+
+S-11 – Implement Application Logging and Centralized Log Management
+
+Implement logging for application page requests.
+
+Implement logging for successful and unsuccessful login events.
+
+Ensure sensitive information, including passwords, OTPs, JWT tokens and database credentials, is never recorded in logs.
+
+Integrate centralized logging.
+
+Configure log retention for 180 days, subject to the department's approved policy.
+
+Verify that production logs do not expose internal server paths, database details or confidential information.
+
+Phase 3 – Medium-Priority Security and Application Fixes
+
+S-14 – Implement Login Rate Limiting
+
+Implement per-IP login rate limiting.
+
+Configure appropriate request thresholds and blocking periods.
+
+Decide and configure the storage mechanism for rate-limit data.
+
+Ensure rate limiting works correctly across multiple application instances.
+
+S-15 – Configure Login Session Expiration
+
+Define the approved login session duration.
+
+Configure session and token expiration accordingly.
+
+Implement secure session termination and invalidation.
+
+Verify that expired sessions cannot access protected application modules.
+
+S-20 – Exclude Demo Data from Production
+
+Identify all demo-data scripts and seed files.
+
+Prevent demo-data scripts from being included in the production build.
+
+Ensure demo data cannot accidentally be inserted into the production database.
+
+Verify production database initialization and deployment procedures.
+
+S-21 – Restrict Project Photo Uploads
+
+Restrict photo uploads so that a PD can upload and access photographs belonging only to their authorized division.
+
+Enforce division-level access validation on the backend.
+
+Prevent unauthorized access to photographs through direct API requests or URLs.
+
+Finalize and configure the approved photo-storage location.
+
+Implement secure upload validation, file-type restrictions and file-size limits.
+
+S-22 – Configure Reverse Proxy Trust
+
+Review the production network architecture and number of reverse proxies in front of the backend API.
+
+Configure the Express trust proxy setting according to the actual infrastructure.
+
+Verify that client IP addresses are identified correctly.
+
+Ensure forwarded headers cannot be manipulated to bypass IP-based security controls.
+
+Phase 4 – Low-Priority Security Fixes and Repository Cleanup
+
+S-23 – Remove Unused Screenshots
+
+Identify unused screenshots in the project repository.
+
+Verify that they are not required for documentation or application functionality.
+
+Remove approved unnecessary screenshots from the tracked repository.
+
+S-24 – Remove Ad-Hoc Test Scripts
+
+Identify temporary and ad-hoc testing scripts.
+
+Verify that required automated tests are retained.
+
+Remove approved unnecessary test scripts from the repository.
+
+S-25 – Remove Outdated Internal Notes
+
+Identify outdated notes and temporary documentation.
+
+Review references to internal government documents and confidential information.
+
+Remove approved unnecessary notes from the tracked repository.
+
+S-26 – Review Translation Fallback Configuration
+
+Review the existing translation fallback implementation.
+
+Keep translation fallback disabled unless an authorized decision is made.
+
+Alternatively, obtain departmental approval for Bhashini integration.
+
+Ensure translation services do not expose confidential government data to unauthorized third-party services.
+
+S-27 – Fix Concurrent OTP Attempt Counter
+
+Correct the OTP attempt-counter implementation.
+
+Ensure parallel OTP verification requests cannot bypass the configured attempt limit.
+
+Implement atomic or concurrency-safe counter updates.
+
+Test simultaneous OTP verification attempts.
+
+S-28 – Implement Logout Request Validation
+
+Add the same request validation mechanism to the logout endpoint that is already implemented for the refresh endpoint.
+
+Verify proper authentication and request validation.
+
+Ensure unauthorized or malformed logout requests are handled securely.
+
+S-30 – Review Contractor Names in Demo Data
+
+Identify realistic contractor names used in demonstration data.
+
+Verify whether the names correspond to actual contractors.
+
+Obtain approval to retain them or replace them with fictional demonstration names.
+
+Ensure demonstration data cannot be mistaken for actual government records.
+
+S-31 – Restrict Officials' Contact Information
+
+Define which user roles are authorized to view other officials' email addresses and mobile numbers.
+
+Implement appropriate field-level access restrictions.
+
+Enforce the restrictions through backend APIs, not only frontend visibility.
+
+Verify that unauthorized users cannot retrieve restricted contact information.
+
+S-32 – Remove Fallback Password from Load Testing
+
+Identify the fallback password in the load-testing script.
+
+Remove hardcoded fallback credentials.
+
+Use environment-based test credentials.
+
+Ensure load-testing credentials cannot be used for production authentication.
+
+Phase 5 – Code Quality and Project Cleanup
+
+Q-01 – Fix Broken NPM Script
+
+Identify the broken npm script.
+
+Correct its command and configuration.
+
+Verify that it executes successfully.
+
+Q-02 – Remove or Complete Placeholder Photos Page
+
+Review the existing /photos page.
+
+Determine whether the page is required for the application.
+
+Implement the complete intended functionality or remove the unused placeholder page.
+
+Ensure no broken routes or navigation links remain.
+
+Q-03 – Add Missing Favicon
+
+Add the appropriate application favicon.
+
+Configure the favicon path correctly.
+
+Verify its visibility in supported browsers.
+
+Q-04 – Remove Dead Code
+
+Identify unused functions, components, variables, imports and obsolete implementations.
+
+Remove unnecessary code without affecting existing functionality.
+
+Run application tests after cleanup.
+
+Q-05 – Review and Optimize Large Files
+
+Identify unnecessarily large files in the repository.
+
+Review their purpose and usage.
+
+Optimize or split files where appropriate without affecting application functionality.
+
+Q-06 – Verify Missing Database Migration
+
+Inform the database administrator that migration 0018 is intentionally missing.
+
+Document the reason for its absence.
+
+Ensure migration history and database schema remain consistent.
+
+Do not recreate or apply the migration without authorization.
+
+Q-07 – Review Internal Document References
+
+Identify source-code comments referring to internal government documents.
+
+Review whether these references are necessary.
+
+Remove confidential internal references where appropriate.
+
+Retain useful technical documentation that does not expose confidential information.
+
+Q-08 – Remove Unused NPM Packages
+
+Identify unused dependencies in frontend and backend applications.
+
+Verify that packages are not required indirectly or dynamically.
+
+Remove unnecessary dependencies.
+
+Update lock files and verify successful builds and tests.
+
+Phase 6 – Final Security Verification and Government Deployment Readiness
+
+Perform Complete Security Re-Scanning
+
+Re-scan the entire frontend and backend codebase.
+
+Verify that all identified credentials, tokens, passwords and sensitive values have been secured.
+
+Recheck dependency vulnerabilities, authentication, authorization, APIs, database security, file uploads and logging.
+
+Verify that previously identified audit findings have been addressed.
+
+Perform Complete Functional and Regression Testing
+
+Test all existing modules, dashboards, project workflows, funds, MoM, tenders, reports and administrative functions.
+
+Test all authorized user roles and their access permissions.
+
+Verify that security changes have not affected existing business logic or application functionality.
+
+Test responsive layouts across desktop, tablet and mobile devices.
+
+Prepare Final Government Production Deployment Package
+
+Generate a clean production build.
+
+Verify that source maps, demo scripts, temporary files, development configurations and sensitive credentials are not included.
+
+Verify production environment variables and secure database connectivity.
+
+Prepare deployment documentation and configuration requirements.
+
+Obtain the final security audit clearance and hosting approval before production deployment.
+
+Important Implementation Instructions
+
+Analyze the complete project before implementing changes.
+
+Follow the existing project architecture and coding standards.
+
+Do not modify unrelated functionality or redesign existing UI components.
+
+Do not delete files without verifying their purpose and obtaining approval where required.
+
+Do not expose actual credentials or sensitive information in reports.
+
+Maintain separate development, testing and production configurations.
+
+Perform regression testing after each implementation phase.
+
+Maintain a backup and document every modification.
+
+Do not deploy the application or connect to live government infrastructure without explicit authorization.
+
+Track every finding using its original S-ID or Q-ID and update its status only after verification.
+
+Final Objective: Resolve all applicable pending security audit findings, maintain existing BUIDCo Dashboard functionality, prepare the application for independent security verification, and make it ready for deployment on the authorized government hosting infrastructure.

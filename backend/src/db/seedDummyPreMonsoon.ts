@@ -14,6 +14,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, pool } from './client.js';
+import { assertDemoSeedingAllowed } from './seedGuard.js';
 import { preMonsoonItem } from './schema.js';
 import type { AuditActor } from '../lib/audit.js';
 import { createPreMonsoon, type PreMonsoonCreateInput } from '../services/preMonsoonService.js';
@@ -40,6 +41,7 @@ const ITEMS: PreMonsoonCreateInput[] = [
 ];
 
 async function main(): Promise<void> {
+  await assertDemoSeedingAllowed('seedDummyPreMonsoon');
   let created = 0;
   let skipped = 0;
 

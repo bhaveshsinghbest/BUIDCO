@@ -1,10 +1,12 @@
-import { and, desc, eq, inArray, lt, or } from 'drizzle-orm';
+import { and, desc, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
 import { db } from '../db/client.js';
 import { auditActions } from '../db/enums.js';
 import { auditLog, auditLogChange } from '../db/schema.js';
 import type { AuditLog, AuditLogChange } from '../db/schema.js';
-import { decodeCursor, encodeCursor } from '../lib/pagination.js';
+import type { AuditActor } from '../lib/audit.js';
+import { CONTACT_FIELD_KEYS, maskContactValue } from '../lib/contactPrivacy.js';
+import { decodeCursor, encodeCursor, exactTimestamp, keysetAfter } from '../lib/pagination.js';
 import { HttpError } from '../middleware/errorHandler.js';
 import { optionalDbId } from '../lib/ids.js';
 
@@ -29,8 +31,26 @@ export interface AuditItem {
   changes: AuditLogChange[];
 }
 
+/**
+ * Contact details in user-account changes are shown in full to an MD only
+ * (S-31, lib/contactPrivacy.ts); everyone else sees them masked.
+ */
+function redactContactChanges(changes: AuditLogChange[], viewer: AuditActor): AuditLogChange[] {
+  if (viewer.role === 'MD') return changes;
+  return changes.map((c) =>
+    CONTACT_FIELD_KEYS.has(c.fieldKey)
+      ? {
+          ...c,
+          beforeValue: maskContactValue(c.fieldKey, c.beforeValue),
+          afterValue: maskContactValue(c.fieldKey, c.afterValue),
+        }
+      : c,
+  );
+}
+
 export async function listAudit(
   q: ListAuditQuery,
+  viewer: AuditActor,
 ): Promise<{ items: AuditItem[]; nextCursor: string | null }> {
   const wheres = [] as ReturnType<typeof eq>[];
   if (q.projectId) wheres.push(eq(auditLog.projectId, q.projectId));
@@ -39,25 +59,20 @@ export async function listAudit(
 
   if (q.cursor) {
     const c = decodeCursor(q.cursor);
-    const cursorDate = new Date(c.createdAt);
     const cursorId = Number(c.id);
     if (!Number.isInteger(cursorId)) {
       throw new HttpError(400, 'BAD_CURSOR', 'Cursor id is not an integer');
     }
-    wheres.push(
-      or(
-        lt(auditLog.changedAt, cursorDate),
-        and(eq(auditLog.changedAt, cursorDate), lt(auditLog.auditId, cursorId)),
-      )!,
-    );
+    wheres.push(keysetAfter(auditLog.changedAt, auditLog.auditId, c.createdAt, cursorId));
   }
 
-  const audits: AuditLog[] = await db
-    .select()
+  const rows = await db
+    .select({ a: auditLog, changedAtExact: exactTimestamp(auditLog.changedAt) })
     .from(auditLog)
     .where(wheres.length > 0 ? and(...wheres) : undefined)
     .orderBy(desc(auditLog.changedAt), desc(auditLog.auditId))
     .limit(q.limit + 1);
+  const audits: AuditLog[] = rows.map((r) => r.a);
 
   const page = audits.slice(0, q.limit);
   const auditIds = page.map((a) => a.auditId);
@@ -85,16 +100,16 @@ export async function listAudit(
     roleLabel: a.roleLabel,
     action: a.action,
     changedAt: a.changedAt,
-    changes: changesByAudit.get(a.auditId) ?? [],
+    changes: redactContactChanges(changesByAudit.get(a.auditId) ?? [], viewer),
   }));
 
   let nextCursor: string | null = null;
   if (audits.length > q.limit) {
-    const last = page[page.length - 1];
+    const last = rows[page.length - 1];
     if (last) {
       nextCursor = encodeCursor({
-        createdAt: last.changedAt.toISOString(),
-        id: String(last.auditId),
+        createdAt: last.changedAtExact,
+        id: String(last.a.auditId),
       });
     }
   }

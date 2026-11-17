@@ -3,7 +3,10 @@ import cors from 'cors';
 import express, { type Express } from 'express';
 import helmet from 'helmet';
 import { corsOptions } from './config/cors.js';
+import { parseTrustProxy } from './config/trustProxy.js';
+import { env } from './env.js';
 import { errorHandler, notFoundHandler } from './middleware/errorHandler.js';
+import { requestLogger } from './middleware/requestLogger.js';
 import { auditRouter } from './routes/audit.js';
 import { authRouter } from './routes/auth.js';
 import { fundsUcRouter } from './routes/fundsUc.js';
@@ -11,6 +14,7 @@ import { healthRouter } from './routes/health.js';
 import { kpisRouter } from './routes/kpis.js';
 import { lookupsRouter } from './routes/lookups.js';
 import { momRouter } from './routes/mom.js';
+import { photoFilesRouter } from './routes/photoFiles.js';
 import { preMonsoonRouter } from './routes/preMonsoon.js';
 import { projectsRouter } from './routes/projects.js';
 import { uploadsRouter } from './routes/uploads.js';
@@ -20,8 +24,11 @@ export function createApp(): Express {
   const app = express();
 
   app.disable('x-powered-by');
-  app.set('trust proxy', 1);
+  // Must match the real proxy topology — see config/trustProxy.ts (S-22).
+  app.set('trust proxy', parseTrustProxy(env.TRUST_PROXY));
 
+  // First, so every request is logged — including ones rejected below.
+  app.use(requestLogger);
   app.use(helmet());
   app.use(cors(corsOptions));
   app.options('*', cors(corsOptions));
@@ -41,6 +48,8 @@ export function createApp(): Express {
   app.use('/api/users', usersRouter);
   app.use('/api/audit', auditRouter);
   app.use('/api/uploads', uploadsRouter);
+  // Signed-link access to photos kept on this server (S-21).
+  app.use('/api/photo-files', photoFilesRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

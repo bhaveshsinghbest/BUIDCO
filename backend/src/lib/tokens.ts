@@ -2,7 +2,10 @@
  * JWT + refresh-token cryptography.
  *
  * Access token  — HS256, `env.JWT_ACCESS_SECRET`, TTL from env, carries
- *                 { sub, role, name } for RBAC without a DB lookup.
+ *                 { sub, role, name, sid }. `sid` is the session id; the
+ *                 auth middleware accepts the token only while that session
+ *                 is live in refresh_token (finding S-15), so a forged token
+ *                 also needs a live session id, not just the signing key.
  * Refresh token — HS256, `env.JWT_REFRESH_SECRET`, TTL from env, carries
  *                 { sub, jti } where jti is the refresh_token PK. The token
  *                 must also match the bcrypt hash stored on that row — the
@@ -23,6 +26,8 @@ export interface AccessTokenPayload {
   sub: string;
   role: UserRole;
   name: string;
+  /** Session id (refresh_token.session_id) this access token belongs to. */
+  sid: string;
   /**
    * PD's selected division for the session. Present only when `role === 'PD'`.
    * Server-side division filtering will use this on every request (Phase C2).
@@ -70,7 +75,14 @@ export function verifyAccessToken(token: string): AccessTokenPayload {
   return decoded as AccessTokenPayload & JwtPayload;
 }
 
-export async function signRefreshToken(userId: number): Promise<SignedRefreshToken> {
+/**
+ * `ttlSeconds` defaults to the idle timeout; callers pass less when the
+ * session's absolute lifetime ends sooner (see authService).
+ */
+export async function signRefreshToken(
+  userId: number,
+  ttlSeconds: number = env.REFRESH_TOKEN_TTL_SECONDS,
+): Promise<SignedRefreshToken> {
   const tokenId = randomUUID();
   const rawSecret = randomBytes(32).toString('base64url');
 
@@ -78,7 +90,7 @@ export async function signRefreshToken(userId: number): Promise<SignedRefreshTok
   const { token: jwtToken, expiresAt } = signHs256(
     env.JWT_REFRESH_SECRET,
     jwtPayload,
-    env.REFRESH_TOKEN_TTL_SECONDS,
+    Math.max(1, Math.floor(ttlSeconds)),
   );
 
   const cookieValue = `${jwtToken}.${rawSecret}`;

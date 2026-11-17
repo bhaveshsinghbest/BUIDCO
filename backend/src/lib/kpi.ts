@@ -1063,6 +1063,8 @@ export interface CosEotRecord {
   projectName: string | null;
   sectorId: number | null;
   districtId: number | null;
+  /** Task 2 — the register displays Division; districtId stays for callers. */
+  divisionId: number | null;
   cosNumber: string | null;
   cosDate: string | null;
   category: string | null;
@@ -1104,6 +1106,7 @@ export async function listCosEotRecords(
     projectName: r.projectName,
     sectorId: r.sectorId,
     districtId: r.districtId,
+    divisionId: r.divisionId,
     cosNumber: r.cosNumber,
     cosDate: r.cosDate,
     category: r.category,

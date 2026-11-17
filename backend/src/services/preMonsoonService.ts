@@ -1,5 +1,6 @@
 import { desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { optionalIsoDate } from '../lib/validators.js';
 import { db } from '../db/client.js';
 import { priorities } from '../db/enums.js';
 import { preMonsoonItem } from '../db/schema.js';
@@ -8,12 +9,7 @@ import { recordAudit, type AuditActor } from '../lib/audit.js';
 import { diffPreMonsoon } from '../lib/auditLabels.js';
 import { HttpError } from '../middleware/errorHandler.js';
 
-const dateField = () =>
-  z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD')
-    .nullable()
-    .optional();
+const dateField = optionalIsoDate;
 
 export const preMonsoonCreateSchema = z.object({
   topic: z.string().min(1).max(20_000),

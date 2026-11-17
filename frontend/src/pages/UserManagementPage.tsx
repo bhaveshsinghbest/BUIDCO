@@ -662,7 +662,7 @@ function UserForm({
           label="Mobile number"
           value={mobileNumber}
           onChange={setMobileNumber}
-          hint="Used for Forgot Password OTP delivery (SMS not yet wired up)."
+          hint="Kept on record only. Reset codes go by email; SMS is not available."
         />
         <FormField
           label={mode === 'create' ? 'Password' : 'New password (blank = unchanged)'}

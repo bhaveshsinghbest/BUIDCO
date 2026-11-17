@@ -15,17 +15,23 @@ import {
   requireMd,
   requireProjectCreate,
   requireProjectDelete,
+  requireProjectReader,
+  requireProjectView,
   requireRole,
   requireWriter,
 } from './auth.js';
 
 vi.mock('../services/authService.js', () => ({
   getUserById: vi.fn(),
+  isSessionActive: vi.fn(),
+  isDemoLoginBlocked: vi.fn(),
 }));
 
 import * as authService from '../services/authService.js';
 
 const mockedGetUserById = vi.mocked(authService.getUserById);
+const mockedIsSessionActive = vi.mocked(authService.isSessionActive);
+const mockedIsDemoLoginBlocked = vi.mocked(authService.isDemoLoginBlocked);
 
 const baseUser = {
   userId: 42,
@@ -51,6 +57,7 @@ function bearer(userId: number, role: 'MD' | 'Admin' | 'PD' | 'Viewer', extra: R
     sub: String(userId),
     role,
     name: 'x',
+    sid: 'session-under-test',
     ...extra,
   });
   return `Bearer ${token}`;
@@ -58,6 +65,9 @@ function bearer(userId: number, role: 'MD' | 'Admin' | 'PD' | 'Viewer', extra: R
 
 beforeEach(() => {
   vi.clearAllMocks();
+  // Default: a live session that is not a blocked demo account.
+  mockedIsSessionActive.mockResolvedValue(true);
+  mockedIsDemoLoginBlocked.mockReturnValue(false);
 });
 
 describe('requireAuth', () => {
@@ -210,5 +220,75 @@ describe('requireProjectCreate / requireProjectDelete gates', () => {
       .set('Authorization', bearer(42, 'Viewer'))
       .expect(403);
     expect(res.body.error.code).toBe('FORBIDDEN_DELETE');
+  });
+});
+
+describe('requireAuth — session binding (S-15)', () => {
+  const app = buildApp([requireAuth]);
+
+  it('401 for an access token that carries no session id', async () => {
+    // Rejected before any database lookup, so no getUserById value is queued.
+    const { token } = signAccessToken({ sub: '42', role: 'Viewer', name: 'x' } as never);
+    const res = await request(app).get('/gated').set('Authorization', `Bearer ${token}`).expect(401);
+    expect(res.body.error.code).toBe('UNAUTHENTICATED');
+    expect(mockedIsSessionActive).not.toHaveBeenCalled();
+    expect(mockedGetUserById).not.toHaveBeenCalled();
+  });
+
+  it('401 once the session has ended (logout / reset / expiry), even with an unexpired token', async () => {
+    mockedGetUserById.mockResolvedValueOnce({ ...baseUser, role: 'Viewer' });
+    mockedIsSessionActive.mockResolvedValueOnce(false);
+    const res = await request(app).get('/gated').set('Authorization', bearer(42, 'Viewer')).expect(401);
+    expect(res.body.error.code).toBe('UNAUTHENTICATED');
+    expect(res.body.error.message).toContain('session has ended');
+    expect(mockedIsSessionActive).toHaveBeenCalledWith('session-under-test');
+  });
+
+  it('401 for a demo account where demo sign-in is blocked (S-02)', async () => {
+    mockedGetUserById.mockResolvedValueOnce({ ...baseUser, username: 'demo_md', role: 'MD' });
+    mockedIsDemoLoginBlocked.mockReturnValueOnce(true);
+    await request(app).get('/gated').set('Authorization', bearer(42, 'MD')).expect(401);
+  });
+});
+
+describe('requireProjectView — "Can view projects" (S-03)', () => {
+  it('403 FORBIDDEN_VIEW for a Viewer without the flag', async () => {
+    const app = buildApp([requireAuth, requireProjectView]);
+    mockedGetUserById.mockResolvedValueOnce({ ...baseUser, role: 'Viewer', canViewProjects: false });
+    const res = await request(app).get('/gated').set('Authorization', bearer(42, 'Viewer')).expect(403);
+    expect(res.body.error.code).toBe('FORBIDDEN_VIEW');
+  });
+
+  it('403 for an Admin without the flag — Admins are not exempt', async () => {
+    const app = buildApp([...requireProjectReader]);
+    mockedGetUserById.mockResolvedValueOnce({ ...baseUser, role: 'Admin', canViewProjects: false });
+    const res = await request(app).get('/gated').set('Authorization', bearer(42, 'Admin')).expect(403);
+    expect(res.body.error.code).toBe('FORBIDDEN_VIEW');
+  });
+
+  it('403 for a PD without the flag', async () => {
+    const app = buildApp([...requireProjectReader]);
+    mockedGetUserById.mockResolvedValueOnce({
+      ...baseUser,
+      role: 'PD',
+      canViewProjects: false,
+      divisionId: 3,
+    });
+    await request(app)
+      .get('/gated')
+      .set('Authorization', bearer(42, 'PD', { divisionId: 3 }))
+      .expect(403);
+  });
+
+  it('MD passes even with the flag off (super-user bypass)', async () => {
+    const app = buildApp([...requireProjectReader]);
+    mockedGetUserById.mockResolvedValueOnce({ ...baseUser, role: 'MD', canViewProjects: false });
+    await request(app).get('/gated').set('Authorization', bearer(42, 'MD')).expect(200);
+  });
+
+  it('a Viewer with the flag on passes', async () => {
+    const app = buildApp([...requireProjectReader]);
+    mockedGetUserById.mockResolvedValueOnce({ ...baseUser, role: 'Viewer', canViewProjects: true });
+    await request(app).get('/gated').set('Authorization', bearer(42, 'Viewer')).expect(200);
   });
 });

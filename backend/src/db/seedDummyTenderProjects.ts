@@ -18,6 +18,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, pool } from './client.js';
+import { assertDemoSeedingAllowed } from './seedGuard.js';
 import { project } from './schema.js';
 import { tenderSubStages, type TenderSubStage } from './enums.js';
 import type { AuditActor } from '../lib/audit.js';
@@ -154,6 +155,7 @@ function subStageFor(index: number): TenderSubStage {
 }
 
 async function main(): Promise<void> {
+  await assertDemoSeedingAllowed('seedDummyTenderProjects');
   const sectorRows = await db.query.sector.findMany();
   const divisionRows = await db.query.division.findMany();
   const schemeRows = await db.query.scheme.findMany();

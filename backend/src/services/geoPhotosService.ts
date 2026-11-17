@@ -12,22 +12,19 @@
 
 import { and, desc, eq } from 'drizzle-orm';
 import { z } from 'zod';
+import { httpUrl, optionalIsoDate } from '../lib/validators.js';
 import { db } from '../db/client.js';
 import { geoPhoto, project } from '../db/schema.js';
 import type { GeoPhoto } from '../db/schema.js';
 import { recordAudit, type AuditActor } from '../lib/audit.js';
 import { diffGeoPhoto } from '../lib/auditLabels.js';
+import { deleteLocalPhoto, isLocalPhotoRef } from '../lib/photoStorage.js';
 import { HttpError } from '../middleware/errorHandler.js';
 
-const dateField = () =>
-  z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD')
-    .nullable()
-    .optional();
+const dateField = optionalIsoDate;
 
 export const geoPhotoUrlCreateSchema = z.object({
-  url: z.string().url().max(2000),
+  url: httpUrl(2000),
   caption: z.string().max(2000).nullable().optional(),
   photoDate: dateField(),
 });
@@ -90,6 +87,60 @@ export async function createGeoPhotoUrl(
   });
 }
 
+export interface GeoPhotoFileInput {
+  /** "local:<file>" from photoStorage.saveLocalPhoto. */
+  ref: string;
+  fileName: string | null;
+  caption: string | null;
+  photoDate: string | null;
+}
+
+/** Records a photo file already saved on this server (PHOTO_STORAGE=local, S-21). */
+export async function createGeoPhotoFile(
+  projectId: string,
+  input: GeoPhotoFileInput,
+  actor: AuditActor,
+): Promise<GeoPhoto> {
+  const projectName = await loadProjectName(projectId);
+
+  return db.transaction(async (tx) => {
+    const [row] = await tx
+      .insert(geoPhoto)
+      .values({
+        projectId,
+        url: input.ref,
+        caption: input.caption,
+        photoDate: input.photoDate,
+        sourceType: 'file',
+        fileName: input.fileName,
+      })
+      .returning();
+    if (!row) throw new Error('geo_photo insert returned no row');
+
+    await recordAudit(tx, {
+      actor,
+      action: 'Created',
+      projectId,
+      projectNameSnapshot: projectName,
+      changes: diffGeoPhoto({}, { table: 'geo_photo', ...row }),
+    });
+    return row;
+  });
+}
+
+/** What the signed file route needs: the stored reference and the project's division. */
+export async function getGeoPhotoFileTarget(
+  photoId: number,
+): Promise<{ url: string; divisionId: number | null } | null> {
+  const [row] = await db
+    .select({ url: geoPhoto.url, divisionId: project.divisionId })
+    .from(geoPhoto)
+    .innerJoin(project, eq(project.projectId, geoPhoto.projectId))
+    .where(eq(geoPhoto.photoId, photoId))
+    .limit(1);
+  return row ?? null;
+}
+
 export async function updateGeoPhoto(
   projectId: string,
   photoId: number,
@@ -145,6 +196,8 @@ export async function deleteGeoPhoto(
 ): Promise<void> {
   const projectName = await loadProjectName(projectId);
 
+  // Widened explicitly: TypeScript does not track the assignment inside the callback.
+  let deletedRef = null as string | null;
   await db.transaction(async (tx) => {
     const [pre] = await tx
       .select()
@@ -161,5 +214,11 @@ export async function deleteGeoPhoto(
       changes: diffGeoPhoto({ table: 'geo_photo', ...pre }, {}),
     });
     await tx.delete(geoPhoto).where(eq(geoPhoto.photoId, photoId));
+    deletedRef = pre.url;
   });
+  // A file kept on this server goes with its row (after the commit, so a
+  // rolled-back delete never loses the file).
+  if (deletedRef !== null && isLocalPhotoRef(deletedRef)) {
+    await deleteLocalPhoto(deletedRef);
+  }
 }

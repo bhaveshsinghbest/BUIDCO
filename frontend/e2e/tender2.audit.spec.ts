@@ -3,11 +3,12 @@
  *   npx playwright test tender2.audit
  */
 import { expect, test, type Page } from '@playwright/test';
+import { demoPassword } from './demoCredentials';
 
 async function signIn(page: Page, username = 'demo_md'): Promise<void> {
   await page.goto('/login');
   await page.getByLabel('Username').fill(username);
-  await page.getByLabel('Password').fill('Demo@1234');
+  await page.getByLabel('Password').fill(demoPassword());
   await page.getByRole('button', { name: 'Sign in' }).click();
 
   const carryOn = page.getByRole('button', { name: /^Continue$/ });

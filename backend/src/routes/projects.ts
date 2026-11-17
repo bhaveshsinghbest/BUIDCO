@@ -4,9 +4,9 @@ import { actorFromReq, sessionDivisionId } from '../lib/actor.js';
 import * as kpi from '../lib/kpi.js';
 import { createProjectSchema, importProjectsSchema, updateProjectSchema } from '../lib/projectFields.js';
 import {
-  requireAuth,
   requireProjectCreate,
   requireProjectDelete,
+  requireProjectReader,
   requireProjectUpdate,
 } from '../middleware/auth.js';
 import {
@@ -30,7 +30,8 @@ import { milestonesRouter } from './milestones.js';
 
 export const projectsRouter = Router();
 
-projectsRouter.use(requireAuth);
+// Signed in AND "Can view projects" (S-03) — covers every nested router below.
+projectsRouter.use(...requireProjectReader);
 
 const projectIdParam = z.object({ projectId: z.string().uuid() });
 

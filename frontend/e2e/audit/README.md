@@ -6,14 +6,22 @@ element outlined in every image.
 
 ## Running it
 
-From `frontend/`, with the local stack up (API on :4000, Vite on :5173, local
-Postgres) and the demo accounts seeded (`npm run db:seed-demo-roles` in
-`backend/`):
+From `frontend/`, with the local stack up (API on :4000 started with
+`npm run dev`, which sets `NODE_ENV=development`; Vite on :5173; local
+Postgres) and the demo accounts seeded with a password of your choosing:
 
 ```bash
-npm run audit          # runs TC-01..TC-05, writes audit-evidence/
+# backend/ — creates the demo_* accounts, or resets their password
+DEMO_ACCOUNT_PASSWORD=<12+ characters> npm run db:seed-demo-roles
+
+# frontend/ — the suites read the same variable; nothing is hardcoded
+DEMO_ACCOUNT_PASSWORD=<same value> npm run audit   # runs TC-01..TC-05, writes audit-evidence/
 npm run audit:report   # builds ../BUIDCO-Application-Testing-Audit-Report.docx
 ```
+
+To run against a separate, disposable stack (e.g. a copy of the database on
+other ports), also set `E2E_BASE_URL` and `AUDIT_APP_URL` to that frontend's
+address; Playwright then uses it instead of starting Vite on :5173.
 
 `npm run audit:clean` deletes the working evidence folder once the report is
 signed off. The specs run serially and in order — TC-05 cleans up after the
@@ -46,8 +54,12 @@ from the existing evidence without re-testing.
 `bhaveshTask.md` §0 requires that testing cannot touch real data. The kit
 enforces that structurally rather than by convention:
 
-- **Local only.** The suite targets `localhost:5173`. It is never pointed at a
-  deployed environment.
+- **Local only.** The suite targets `localhost:5173` (or `E2E_BASE_URL`). It is
+  never pointed at a deployed environment — and a production API refuses the
+  demo_* accounts anyway.
+- **No published credentials.** The demo password comes from
+  `DEMO_ACCOUNT_PASSWORD`; the value that used to be written in the specs was
+  public and has been removed (security finding S-02).
 - **Tagged.** Every record created carries the `ZZ-AUDIT` prefix, so test data
   is obvious in any list and sorts to the bottom.
 - **Never deleted by pattern.** Each created row's id is written to

@@ -22,7 +22,6 @@ export function ForgotPasswordPage(): JSX.Element {
   const [step, setStep] = useState<Step>('identify');
   const [username, setUsername] = useState('');
   const [maskedEmail, setMaskedEmail] = useState<string | null>(null);
-  const [maskedMobile, setMaskedMobile] = useState<string | null>(null);
   const [channel, setChannel] = useState<OtpChannel | null>(null);
   const [otp, setOtp] = useState('');
   const [resetToken, setResetToken] = useState('');
@@ -76,9 +75,9 @@ export function ForgotPasswordPage(): JSX.Element {
       }
 
       if (res.selfService) {
-        // MD — unchanged self-service path. The requester's own masked
-        // contact info gates whether there's anything to pick from.
-        if (!res.maskedEmail && !res.maskedMobile) {
+        // MD — self-service path. Codes go by e-mail only (no SMS gateway
+        // is approved), so a registered e-mail is required.
+        if (!res.maskedEmail) {
           setNotFoundMessage(
             "We couldn't find recovery options for this account. Check the username or contact your administrator.",
           );
@@ -86,8 +85,7 @@ export function ForgotPasswordPage(): JSX.Element {
         }
         setSelfService(true);
         setMaskedEmail(res.maskedEmail);
-        setMaskedMobile(res.maskedMobile);
-        setChannel(res.maskedEmail ? 'email' : 'mobile');
+        setChannel('email');
         setStep('method');
         return;
       }
@@ -102,7 +100,8 @@ export function ForgotPasswordPage(): JSX.Element {
           setStep('pending');
           break;
         case 'approved': {
-          const approvedChannel = res.channel ?? 'email';
+          // Approver delivery is always by e-mail.
+          const approvedChannel: OtpChannel = 'email';
           setChannel(approvedChannel);
           await sendOtp({ username, channel: approvedChannel }).unwrap();
           startCooldown();
@@ -178,9 +177,9 @@ export function ForgotPasswordPage(): JSX.Element {
         <h2 className="text-2xl font-extrabold text-[#111827]">Forgot Password</h2>
         <p className="mt-2 text-sm text-[#6B7280]">
           {step === 'identify' && 'Enter your username to begin recovering your account.'}
-          {step === 'method' && 'Choose how you want to receive your verification code.'}
+          {step === 'method' && 'Your verification code will be sent to your registered email.'}
           {step === 'pending' && 'Your account requires approval before a code can be sent.'}
-          {step === 'otp' && selfService && `Enter the 6-digit code sent to your ${channel === 'email' ? 'email' : 'mobile number'}.`}
+          {step === 'otp' && selfService && 'Enter the 6-digit code sent to your email.'}
           {step === 'otp' && !selfService && 'Enter the 6-digit code your approver received on your behalf.'}
           {step === 'reset' && 'Choose a new password for your account.'}
           {step === 'done' && 'Your password has been updated.'}
@@ -236,21 +235,6 @@ export function ForgotPasswordPage(): JSX.Element {
                     Send OTP to Registered Email
                     <br />
                     <span className="text-[#6B7280]">{maskedEmail}</span>
-                  </span>
-                </label>
-              ) : null}
-              {maskedMobile ? (
-                <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-[#D1D5DB] px-4 py-3 text-sm has-[:checked]:border-[#1D4ED8] has-[:checked]:bg-[#EFF6FF]">
-                  <input
-                    type="radio"
-                    name="channel"
-                    checked={channel === 'mobile'}
-                    onChange={() => setChannel('mobile')}
-                  />
-                  <span>
-                    Send OTP to Registered Mobile Number
-                    <br />
-                    <span className="text-[#6B7280]">{maskedMobile}</span>
                   </span>
                 </label>
               ) : null}

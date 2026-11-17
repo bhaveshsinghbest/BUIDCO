@@ -26,16 +26,17 @@
 
 import { eq } from 'drizzle-orm';
 import { db, pool } from './client.js';
+import { assertDemoSeedingAllowed } from './seedGuard.js';
 import {
   cosEotItem,
   managementActionItem,
   project,
-  projectFundsUc,
   projectScheme,
   scheme,
 } from './schema.js';
 import type { TenderSubStage } from './enums.js';
 import type { AuditActor } from '../lib/audit.js';
+import { createFundsUc } from '../services/fundsUcService.js';
 import { createProject, updateProject } from '../services/projectsService.js';
 import { createProjectSchema } from '../lib/projectFields.js';
 
@@ -131,6 +132,7 @@ function describeDelay(days: number, unit: string): string {
 }
 
 async function main(): Promise<void> {
+  await assertDemoSeedingAllowed('seedDelayCategoryProjects');
   const sectorRows = await db.query.sector.findMany();
   const divisionRows = await db.query.division.findMany();
   const schemeRows = await db.select().from(scheme);
@@ -302,18 +304,19 @@ async function main(): Promise<void> {
         deadlineDate: daysAgo(-30),
       });
 
-      await db.insert(projectFundsUc).values({
-        projectId: createdProject.projectId,
-        fundingSource: 'State Funded',
-        openingBalanceCr: String((aa * 0.15).toFixed(2)),
-        grantReceivedCr: String((aa * 0.62).toFixed(2)),
-        expenditureIncurredCr: String(((aa * financialPct) / 100).toFixed(2)),
-        centralSharePct: String('60.00'),
-        stateSharePct: String('40.00'),
-        ucSubmittedDate: daysAgo(45),
-        sanctionNo: `SANC/BUIDCO/2026/${shortBucket}-${tag}`,
-        remarks: `UC for the released tranche submitted; balance pending against ${readable} of slippage.`,
-      });
+      await createFundsUc(
+        {
+          projectId: createdProject.projectId,
+          fundingSource: 'State Funded',
+          openingBalanceCr: Number((aa * 0.15).toFixed(2)),
+          grantReceivedCr: Number((aa * 0.62).toFixed(2)),
+          expenditureIncurredCr: Number(((aa * financialPct) / 100).toFixed(2)),
+          ucSubmittedDate: daysAgo(45),
+          sanctionNo: `SANC/BUIDCO/2026/${shortBucket}-${tag}`,
+          remarks: `UC for the released tranche submitted; balance pending against ${readable} of slippage.`,
+        },
+        SEED_ACTOR,
+      );
 
       // Always issue the update, even when the sub-stage is already the
       // default: it is what stamps `last_updated`, and the Tender table has a

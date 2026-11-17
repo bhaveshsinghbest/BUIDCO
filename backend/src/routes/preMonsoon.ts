@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { actorFromReq } from '../lib/actor.js';
-import { requireAuth, requireWriter } from '../middleware/auth.js';
+import { requireProjectReader, requireWriter } from '../middleware/auth.js';
 import * as service from '../services/preMonsoonService.js';
 import { dbId } from '../lib/ids.js';
 
 export const preMonsoonRouter = Router();
 
-preMonsoonRouter.use(requireAuth);
+// Signed in AND "Can view projects" (S-03).
+preMonsoonRouter.use(...requireProjectReader);
 
 const idParam = z.object({ itemId: dbId });
 

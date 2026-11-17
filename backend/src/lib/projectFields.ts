@@ -11,6 +11,7 @@
  */
 
 import { z } from 'zod';
+import { httpUrl, MAX_CR_AMOUNT, optionalIsoDate } from './validators.js';
 import {
   contractTypes,
   currentPhases,
@@ -23,10 +24,18 @@ import {
   workTypes,
 } from '../db/enums.js';
 
-const numericField = () =>
+/**
+ * Every numeric project field is a ₹ Cr amount (or O&M months), none of
+ * which can be negative. The bounds also keep values inside the numeric
+ * column's precision — above it Postgres raised "numeric field overflow"
+ * (HTTP 500), and a negative AA/agreement amount was silently stored.
+ */
+const numericField = (max: number = MAX_CR_AMOUNT) =>
   z
     .number()
     .finite()
+    .min(0)
+    .max(max)
     .nullable()
     .optional()
     .transform((v) => (typeof v === 'number' ? String(v) : v));
@@ -41,12 +50,7 @@ const percentField = () =>
     .optional()
     .transform((v) => (typeof v === 'number' ? String(v) : v));
 
-const dateField = () =>
-  z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD')
-    .nullable()
-    .optional();
+const dateField = optionalIsoDate;
 
 const stringField = (max: number) => z.string().min(1).max(max).nullable().optional();
 const textField = () => z.string().min(1).max(20_000).nullable().optional();
@@ -136,13 +140,14 @@ export const createProjectSchema = z.object({
   lastPaymentDate: dateField(),
   lastRaBillNo: stringField(60),
 
-  geoTaggingUrl: z.string().url().nullable().optional(),
+  geoTaggingUrl: httpUrl(2000).nullable().optional(),
 
   remark: textField(),
 
   omApplicable: z.boolean().optional(),
   omStartDate: dateField(),
-  omPeriodMonths: numericField(),
+  // numeric(5,1) column
+  omPeriodMonths: numericField(9999.9),
   omEndDate: dateField(),
   omAgency: stringField(150),
   omStatusOverride: z.enum(omStatusOverrides).nullable().optional(),

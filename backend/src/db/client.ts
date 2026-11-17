@@ -1,21 +1,24 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import pg from 'pg';
-import { env, isProduction } from '../env.js';
+import { logger } from '../lib/logger.js';
+import { connectionConfig } from './connection.js';
 import * as schema from './schema.js';
 import * as views from './views.js';
 
 const { Pool } = pg;
 
 export const pool = new Pool({
-  connectionString: env.DATABASE_URL,
+  // TLS is decided in connection.ts (DB_SSL), never by the URL alone.
+  ...connectionConfig(),
   max: 10,
   idleTimeoutMillis: 30_000,
   connectionTimeoutMillis: 5_000,
-  ssl: isProduction && env.DATABASE_URL.includes('sslmode=require') ? { rejectUnauthorized: false } : undefined,
 });
 
 pool.on('error', (err) => {
-  process.stderr.write(`Unexpected pg pool error: ${err.message}\n`);
+  // The message only: pg errors never carry the password, and the
+  // connection string itself is never logged.
+  logger.error('db.pool_error', { errorMessage: err.message });
 });
 
 export const db = drizzle(pool, { schema: { ...schema, ...views } });

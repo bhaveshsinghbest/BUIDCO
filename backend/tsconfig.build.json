@@ -1,10 +1,27 @@
 {
   "extends": "./tsconfig.json",
-  // src/scripts/* are one-off maintenance tools run locally through tsx
-  // (`npm run gen:input-template`, `npm run db:backfill-divisions`) — the
-  // server never imports them, and they pull in dev-only packages such as
-  // exceljs. Compiling them into dist/ only made the production build
-  // depend on devDependencies. `npm run typecheck` still covers them via
-  // tsconfig.json, so they stay type-checked in CI and in the editor.
-  "exclude": ["node_modules", "dist", "src/**/*.test.ts", "src/scripts"]
+  // Only what the server needs goes into dist/. `npm run typecheck` still
+  // covers every file below through tsconfig.json.
+  //
+  // - src/scripts/* are one-off maintenance tools run locally through tsx
+  //   (`npm run gen:input-template`, `npm run db:backfill-divisions`); they
+  //   pull in dev-only packages such as exceljs.
+  // - The demo/dummy-data seeders (finding S-20) write fictitious records and
+  //   demo accounts. Leaving them out means they do not exist on a production
+  //   server. seedAdmin (first-MD bootstrap) and migrate stay in the build.
+  "exclude": [
+    "node_modules",
+    "dist",
+    "src/**/*.test.ts",
+    "src/scripts",
+    "src/db/seedGuard.ts",
+    "src/db/seedProjects.ts",
+    "src/db/seedDemoRoles.ts",
+    "src/db/seedDummy*.ts",
+    "src/db/seedMoreDummyProjects.ts",
+    "src/db/seedHindiDemoProjects.ts",
+    "src/db/seedDelayCategoryProjects.ts",
+    "src/db/seedAdvanceToAgreement.ts",
+    "src/db/seedFullFieldCompletion.ts"
+  ]
 }

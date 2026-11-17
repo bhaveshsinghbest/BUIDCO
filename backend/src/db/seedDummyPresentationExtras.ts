@@ -29,6 +29,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, pool } from './client.js';
+import { assertDemoSeedingAllowed } from './seedGuard.js';
 import { minutesOfMeeting, project, projectMilestone } from './schema.js';
 import type { AuditActor } from '../lib/audit.js';
 import { updateProject } from '../services/projectsService.js';
@@ -328,6 +329,7 @@ async function seedMom(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  await assertDemoSeedingAllowed('seedDummyPresentationExtras');
   await backfillLateTenderAgreements();
   await fixInconsistentAgreement();
   await seedMilestones();

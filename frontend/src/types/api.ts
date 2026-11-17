@@ -72,7 +72,7 @@ export type FundingSource =
   | 'Central - Non-EAP'
   | 'Central - State Share'
   | 'State Funded';
-export type FundsUcStatus = 'Submitted' | 'Pending' | 'Overdue';
+export type FundsUcStatus = 'Not Due' | 'Pending' | 'Submitted' | 'Acknowledged' | 'Overdue';
 export type OmStatusOverride =
   | 'Not Started'
   | 'Ongoing'
@@ -137,7 +137,12 @@ export interface MeResponse {
 
 /* -------- Forgot password (OTP) -------- */
 
-export type OtpChannel = 'email' | 'mobile';
+/**
+ * E-mail only. The mobile (SMS) channel was withdrawn because no SMS gateway
+ * is approved (security finding S-04); the API answers 400
+ * CHANNEL_UNAVAILABLE for "mobile".
+ */
+export type OtpChannel = 'email';
 
 export interface RequestPasswordResetPayload {
   username: string;
@@ -148,7 +153,6 @@ export interface RequestPasswordResetResponse {
   /** Only MD self-serves directly; every other role goes through request/approval. */
   selfService: boolean;
   maskedEmail: string | null;
-  maskedMobile: string | null;
   /** Present only when found && !selfService. */
   requestStatus?: 'none' | 'pending' | 'approved';
   /** Present only when requestStatus === 'approved' — the channel fixed at request time. */
@@ -397,6 +401,8 @@ export interface CosEotRecord {
   projectName: string | null;
   sectorId: number | null;
   districtId: number | null;
+  /** Task 2 — the register shows Division; districtId is kept for other callers. */
+  divisionId: number | null;
   cosNumber: string | null;
   cosDate: string | null;
   category: string | null;
@@ -757,34 +763,85 @@ export interface PreMonsoonUpsertPayload {
   deadlineDate?: string | null;
 }
 
+/** Funds Flow & UC (bhaveshTask.md T-04). */
+export type FundSanctionAgency =
+  | 'MoHUA – Govt. of India'
+  | 'NMCG – Govt. of India'
+  | 'Other Central Ministry'
+  | 'UDHD – Govt. of Bihar'
+  | 'Other State Dept.';
+export type UcSentTo = 'UDHD, Govt. of Bihar' | 'NMCG' | 'MoHUA / SPMG' | 'Other';
+
+/** Project facts the Funds Flow & UC tracker needs alongside the entry. */
+export interface FundsUcProjectInfo {
+  projectName: string;
+  divisionId: number | null;
+  /** Scheme tags in the order the Projects API lists them. */
+  schemeNames: string[];
+  aaAmountCr: number | null;
+  revisedAaAmountCr: number | null;
+}
+
+/**
+ * One project's funds record. The chain is Sanctioning Agency → UDHD →
+ * BUIDCo → Contractors / Payees, with the UC going back BUIDCo → UDHD →
+ * Agency. grantReceivedCr is the amount RECEIVED BY BUIDCo and
+ * expenditureIncurredCr the amount PAID BY BUIDCo.
+ */
 export interface FundsUcEntry {
   fundsUcId: number;
   projectId: string;
+  // ① Sanction
   fundingSource: FundingSource;
-  openingBalanceCr: number;
-  grantReceivedCr: number;
-  expenditureIncurredCr: number;
+  fundSanctionAgency: FundSanctionAgency | null;
+  /** null = not entered (the project's Sanctioned Cost is used instead). */
+  fundSanctionedAmountCr: number | null;
+  sanctionNo: string | null;
+  sanctionDate: string | null;
   /** Only meaningful when fundingSource is 'Central - State Share' — a
    *  percentage (0-100), not a ₹ Cr amount. */
   centralSharePct: number | null;
   stateSharePct: number | null;
-  sanctionNo: string | null;
+  // ② Released by the agency to UDHD — null = not entered, 0 is a value.
+  fundReleasedToUdhdCr: number | null;
+  // ③ Released by UDHD to BUIDCo
+  openingBalanceCr: number;
+  grantReceivedCr: number;
+  // ④ Paid by BUIDCo
+  expenditureIncurredCr: number;
+  /** Derived: opening + received − paid. */
+  closingBalanceCr: number;
+  // ⑤ UC
+  ucAmountCertifiedCr: number | null;
+  ucSentTo: UcSentTo | null;
   ucSubmittedDate: string | null;
+  ucStatusOverride: FundsUcStatus | null;
+  /** Derived: override, else Submitted / Overdue by UC age, else Pending / Not Due. */
+  ucStatus: FundsUcStatus;
+  ucDaysSinceSubmission: number | null;
   remarks: string | null;
   createdAt: string;
   lastUpdated: string | null;
+  project: FundsUcProjectInfo | null;
 }
 
 export interface FundsUcCreatePayload {
   projectId: string;
   fundingSource: FundingSource;
-  openingBalanceCr?: number;
-  grantReceivedCr?: number;
-  expenditureIncurredCr?: number;
+  fundSanctionAgency?: FundSanctionAgency | null;
+  fundSanctionedAmountCr?: number | null;
+  sanctionNo?: string | null;
+  sanctionDate?: string | null;
   centralSharePct?: number | null;
   stateSharePct?: number | null;
-  sanctionNo?: string | null;
+  fundReleasedToUdhdCr?: number | null;
+  openingBalanceCr?: number | null;
+  grantReceivedCr?: number | null;
+  expenditureIncurredCr?: number | null;
+  ucAmountCertifiedCr?: number | null;
+  ucSentTo?: UcSentTo | null;
   ucSubmittedDate?: string | null;
+  ucStatusOverride?: FundsUcStatus | null;
   remarks?: string | null;
 }
 
@@ -793,11 +850,22 @@ export type FundsUcUpdatePayload = Partial<Omit<FundsUcCreatePayload, 'projectId
 export interface GeoPhoto {
   photoId: number;
   projectId: string;
+  /**
+   * An external link, or — for a photo kept on this server — a same-origin
+   * signed link (/api/photo-files/…) that expires after 30 minutes.
+   */
   url: string;
   caption: string | null;
   photoDate: string | null;
   sourceType: GeoPhotoSourceType | null;
   fileName: string | null;
+}
+
+/** GET /uploads/config — where uploaded photos go on this server (S-21). */
+export interface PhotoUploadConfig {
+  storage: 'local' | 'uploadthing' | 'off';
+  maxBytes: number;
+  allowedTypes: string[];
 }
 
 export interface GeoPhotoUrlCreatePayload {

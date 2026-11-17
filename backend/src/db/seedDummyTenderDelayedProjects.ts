@@ -18,6 +18,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, pool } from './client.js';
+import { assertDemoSeedingAllowed } from './seedGuard.js';
 import { project } from './schema.js';
 import type { TenderSubStage } from './enums.js';
 import type { AuditActor } from '../lib/audit.js';
@@ -96,6 +97,7 @@ const SPECS: DelayedProjectSpec[] = [
 ];
 
 async function main(): Promise<void> {
+  await assertDemoSeedingAllowed('seedDummyTenderDelayedProjects');
   const sectorRows = await db.query.sector.findMany();
   const divisionRows = await db.query.division.findMany();
   const sectorByName = new Map(sectorRows.map((s) => [s.sectorName, s.sectorId]));

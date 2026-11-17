@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { actorFromReq } from '../lib/actor.js';
 import { requireAuth, requireMd, requireWriter } from '../middleware/auth.js';
 import {
   createScheme,
@@ -59,7 +60,7 @@ const idParam = z.object({ id: dbId });
 lookupsRouter.delete('/sectors/:id', requireAuth, requireMd, async (req, res, next) => {
   try {
     const { id } = idParam.parse(req.params);
-    res.json(await deleteSector(id));
+    res.json(await deleteSector(id, actorFromReq(req)));
   } catch (err) {
     next(err);
   }
@@ -68,7 +69,7 @@ lookupsRouter.delete('/sectors/:id', requireAuth, requireMd, async (req, res, ne
 lookupsRouter.delete('/schemes/:id', requireAuth, requireMd, async (req, res, next) => {
   try {
     const { id } = idParam.parse(req.params);
-    res.json(await deleteScheme(id));
+    res.json(await deleteScheme(id, actorFromReq(req)));
   } catch (err) {
     next(err);
   }

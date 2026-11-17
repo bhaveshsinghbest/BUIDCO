@@ -1,8 +1,17 @@
-import { and, desc, eq, inArray, lt, or, sql } from 'drizzle-orm';
+import { and, desc, eq, inArray, sql } from 'drizzle-orm';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
 import { db } from '../db/client.js';
-import { auditLog, division, minutesOfMeeting, project, projectScheme } from '../db/schema.js';
+import {
+  auditLog,
+  district,
+  division,
+  geoPhoto,
+  minutesOfMeeting,
+  project,
+  projectScheme,
+  scheme,
+} from '../db/schema.js';
 import type { Project } from '../db/schema.js';
 import {
   FINAL_TENDER_SUB_STAGE,
@@ -14,10 +23,28 @@ import { vProjectEffectivePhysical } from '../db/views.js';
 import { recordAudit, type AuditActor, type DbExecutor } from '../lib/audit.js';
 import { diffProject } from '../lib/auditLabels.js';
 import { toNumberOrNull } from '../lib/numbers.js';
-import { decodeCursor, encodeCursor } from '../lib/pagination.js';
+import {
+  decodeCursor,
+  decodeOffsetCursor,
+  encodeCursor,
+  encodeOffsetCursor,
+  exactTimestamp,
+  keysetAfter,
+} from '../lib/pagination.js';
+import {
+  expandQuery,
+  ORIGIN_RANK,
+  type ExpandedGroup,
+  type ExpandedQuery,
+  type ExpandedTerm,
+} from '../lib/hindiSearch/index.js';
+import { isTranslationEnabled, translateQuery } from '../lib/hindiSearch/translate.js';
 import type { CreateProjectInput, UpdateProjectInput } from '../lib/projectFields.js';
 import { HttpError } from '../middleware/errorHandler.js';
 import { optionalDbId } from '../lib/ids.js';
+import { isoDate } from '../lib/validators.js';
+import { containsPattern } from '../lib/likePattern.js';
+import { deleteLocalPhoto, isLocalPhotoRef } from '../lib/photoStorage.js';
 
 /**
  * Fixed Input fields (Input Sheet §1 / §5) — Basic Info + Contract & Security.
@@ -86,6 +113,111 @@ function numify<T extends Project>(row: T): Numified<T> {
  * LIST
  * ============================================================ */
 
+/* ============================================================
+ * SEARCH MATCHING (bhaveshTask.md Tasks 4-9)
+ *
+ * One expanded term is matched against the project's STRUCTURED fields
+ * plus the NAMES behind its district, division and scheme foreign keys.
+ * The long free-text columns (project_brief, remark, main_work) are
+ * deliberately excluded: including them makes a common word match almost
+ * every project, which is worse than missing a few.
+ *
+ * Every value is bound as a parameter, never concatenated, so widening the
+ * field set does not weaken the existing injection safety.
+ * ============================================================ */
+
+/** Fields matched with a case-insensitive substring (user text escaped — see lib/likePattern). */
+function likeTargets(term: string) {
+  const pattern = containsPattern(term);
+  return [
+    sql`${project.projectName} ILIKE ${pattern}`,
+    // Contractor is one of the identifiers users look projects up by
+    // (bhaveshTask.md §11.2) but was never part of the search.
+    sql`${project.contractor} ILIKE ${pattern}`,
+    sql`${project.nitNumber} ILIKE ${pattern}`,
+    sql`${project.city} ILIKE ${pattern}`,
+    sql`${project.sponsoringDept} ILIKE ${pattern}`,
+    sql`${project.implementingAgency} ILIKE ${pattern}`,
+    // status carries the Hindi status synonyms (पूर्ण -> Completed).
+    sql`${project.status} ILIKE ${pattern}`,
+    // A project ID is an opaque identifier, so only an exact hit is useful;
+    // a substring match on it would be noise.
+    sql`${project.projectId} = ${term}`,
+    // District / division / scheme are foreign keys — the searchable text
+    // lives in the lookup tables, so each needs its own EXISTS.
+    sql`EXISTS (SELECT 1 FROM ${district} d
+                WHERE d.district_id = ${project.districtId}
+                  AND d.district_name ILIKE ${pattern})`,
+    sql`EXISTS (SELECT 1 FROM ${division} dv
+                WHERE dv.division_id = ${project.divisionId}
+                  AND dv.division_name ILIKE ${pattern})`,
+    sql`EXISTS (SELECT 1 FROM ${projectScheme} ps
+                  JOIN ${scheme} s ON s.scheme_id = ps.scheme_id
+                WHERE ps.project_id = ${project.projectId}
+                  AND s.scheme_name ILIKE ${pattern})`,
+  ];
+}
+
+/** True when any one of `terms` matches any searchable field. */
+function matchesAnyTerm(terms: ExpandedTerm[]) {
+  const perTerm = terms.map((t) => sql`(${sql.join(likeTargets(t.term), sql` OR `)})`);
+  return sql`(${sql.join(perTerm, sql` OR `)})`;
+}
+
+/**
+ * The search predicate.
+ *
+ *   match(raw query)  OR  (group1 AND group2 AND ...)
+ *
+ * AND across groups is what makes `पटना जल निकासी` mean "drainage projects
+ * IN Patna" rather than "anything in Patna plus anything about drainage" —
+ * an OR there turns the intersection the user asked for into a union. OR
+ * inside a group is right because a group's terms are alternative spellings
+ * of the SAME token, so any one of them is a hit.
+ *
+ * The raw query stays a top-level alternative so a query that is literally a
+ * project name still matches it as a single string.
+ */
+function searchPredicate(expanded: ExpandedQuery) {
+  const rawMatch = matchesAnyTerm([expanded.rawTerm]);
+  if (expanded.groups.length === 0) return rawMatch;
+  const groups = expanded.groups.map((g) => matchesAnyTerm(g.terms));
+  return sql`(${rawMatch} OR (${sql.join(groups, sql` AND `)}))`;
+}
+
+/**
+ * Relevance score, lower is better: 0 for an exact English match, 1 for a
+ * dictionary synonym, 2 for a transliteration guess (Task 8 — "rank exact
+ * English matches above synonym-based and transliteration-based matches").
+ *
+ * A row's score is the WORST tier among the groups, because every group had
+ * to match for the row to qualify at all: a result found half exactly and
+ * half by transliteration is only as trustworthy as its weakest link. A
+ * literal hit on the whole query short-circuits to 0.
+ */
+function relevanceExpr(expanded: ExpandedQuery) {
+  const groupScore = (group: ExpandedGroup) => {
+    const branches = [0, 1]
+      .map((tier) => ({ tier, terms: group.terms.filter((t) => ORIGIN_RANK[t.origin] === tier) }))
+      .filter(({ terms }) => terms.length > 0)
+      .map(({ tier, terms }) => sql`WHEN ${matchesAnyTerm(terms)} THEN ${tier}`);
+    if (branches.length === 0) return sql`2`;
+    return sql`(CASE ${sql.join(branches, sql` `)} ELSE 2 END)`;
+  };
+
+  // No token groups (e.g. a punctuation-only query) means every hit is a
+  // literal match on the raw text, so all rows tie. Returning the bare
+  // literal `0` here broke the query: Postgres reads `ORDER BY 0` as a
+  // column position and rejects it ("ORDER BY position 0 is not in select
+  // list" → HTTP 500 for searches like "%" or "_"). `0::int` is an
+  // expression, not a position.
+  if (expanded.groups.length === 0) return sql`0::int`;
+  const scores = expanded.groups.map(groupScore);
+  const worst =
+    scores.length === 1 ? scores[0] : sql`GREATEST(${sql.join(scores, sql`, `)})`;
+  return sql`(CASE WHEN ${matchesAnyTerm([expanded.rawTerm])} THEN 0 ELSE ${worst} END)`;
+}
+
 export const listProjectsQuery = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(25),
   cursor: z.string().min(1).optional(),
@@ -131,14 +263,21 @@ export async function listProjects(
   }
   if (q.sectorId) filters.push(eq(project.sectorId, q.sectorId));
 
+  // A search is relevance-ordered, so it cannot be keyset-paged — the sort
+  // key is a computed score that many rows share. Searches page by offset
+  // instead, behind an opaque cursor, so the API shape is unchanged either
+  // way. See lib/pagination.ts.
+  const searchText = q.search?.trim() ?? '';
+  const isSearch = searchText !== '';
+  let searchOffset = 0;
+
   if (q.cursor) {
-    const c = decodeCursor(q.cursor);
-    filters.push(
-      or(
-        lt(project.createdAt, new Date(c.createdAt)),
-        and(eq(project.createdAt, new Date(c.createdAt)), lt(project.projectId, c.id)),
-      )!,
-    );
+    if (isSearch) {
+      searchOffset = decodeOffsetCursor(q.cursor);
+    } else {
+      const c = decodeCursor(q.cursor);
+      filters.push(keysetAfter(project.createdAt, project.projectId, c.createdAt, c.id));
+    }
   }
 
   // Region filter: pass through to project.divisionId via a subquery join,
@@ -149,13 +288,14 @@ export async function listProjects(
                                     WHERE ${division.regionId} = ${q.regionId})`
     : undefined;
 
-  // NIT_addition_instructions.md §5 — the Projects Register search box also
-  // matches on nit_number so users can look up a project by its tender reference.
-  const searchClause = q.search
-    ? sql`(${project.projectName} ILIKE ${'%' + q.search + '%'}
-           OR ${project.projectId} = ${q.search}
-           OR ${project.nitNumber} ILIKE ${'%' + q.search + '%'})`
-    : undefined;
+  // The raw query is expanded into English terms before it ever reaches SQL
+  // (Hindi, Hinglish and mixed-script input — Tasks 4-6). An English query
+  // expands to itself, so existing behaviour is preserved; the field set is
+  // a superset of the old name/id/NIT trio, so nothing that matched before
+  // stops matching now.
+  const expanded = isSearch ? expandQuery(searchText) : null;
+  const hasTerms = expanded !== null && expanded.terms.length > 0;
+  const searchClause = hasTerms ? searchPredicate(expanded) : undefined;
 
   const schemeJoin = q.schemeId
     ? sql`EXISTS (SELECT 1 FROM ${projectScheme} ps
@@ -163,21 +303,68 @@ export async function listProjects(
                     AND ps.scheme_id = ${q.schemeId})`
     : undefined;
 
-  const whereClauses = [...filters, searchClause, schemeJoin, regionClause].filter(
-    (c): c is NonNullable<typeof c> => c !== undefined,
-  );
+  /**
+   * Run the listing. Parameterised by the search predicate so the optional
+   * translation fallback can retry with widened terms without duplicating
+   * the join, the filters or the ordering.
+   */
+  const runQuery = async (search: ReturnType<typeof searchPredicate> | undefined) => {
+    const whereClauses = [...filters, search, schemeJoin, regionClause].filter(
+      (c): c is NonNullable<typeof c> => c !== undefined,
+    );
 
-  const rows = await db
-    .select({
-      p: project,
-      effectivePhysicalPct: vProjectEffectivePhysical.physicalProgressPct,
-      isMilestoneWeighted: vProjectEffectivePhysical.isMilestoneWeighted,
-    })
-    .from(project)
-    .leftJoin(vProjectEffectivePhysical, eq(vProjectEffectivePhysical.projectId, project.projectId))
-    .where(whereClauses.length > 0 ? and(...whereClauses) : undefined)
-    .orderBy(desc(project.createdAt), desc(project.projectId))
-    .limit(q.limit + 1);
+    // Relevance first when searching, then the usual recency order as a
+    // stable tiebreaker so equally-relevant rows never shuffle between pages.
+    const orderBy =
+      search !== undefined && expanded !== null
+        ? [relevanceExpr(expanded), desc(project.createdAt), desc(project.projectId)]
+        : [desc(project.createdAt), desc(project.projectId)];
+
+    return db
+      .select({
+        p: project,
+        createdAtExact: exactTimestamp(project.createdAt),
+        effectivePhysicalPct: vProjectEffectivePhysical.physicalProgressPct,
+        isMilestoneWeighted: vProjectEffectivePhysical.isMilestoneWeighted,
+      })
+      .from(project)
+      .leftJoin(
+        vProjectEffectivePhysical,
+        eq(vProjectEffectivePhysical.projectId, project.projectId),
+      )
+      .where(whereClauses.length > 0 ? and(...whereClauses) : undefined)
+      .orderBy(...orderBy)
+      .limit(q.limit + 1)
+      .offset(isSearch ? searchOffset : 0);
+  };
+
+  let rows = await runQuery(searchClause);
+
+  // Translation fallback (Task 7) — last resort, and only on a miss.
+  //
+  // Gated on an EMPTY result, not on the query being Hindi: if the
+  // dictionary and transliteration already found rows, paying for a network
+  // round trip could only slow a search that already worked. Disabled by
+  // default; translateQuery returns [] when the feature is off, so this
+  // whole block costs one boolean in the normal case.
+  if (hasTerms && rows.length === 0 && isTranslationEnabled()) {
+    const translated = await translateQuery(searchText);
+    if (translated.length > 0) {
+      const widened = searchPredicate({
+        ...expanded,
+        // Replace the groups with ONE group of translated alternatives.
+        // Keeping the original groups would AND them against the
+        // translation and guarantee another empty result.
+        groups: [
+          {
+            source: searchText,
+            terms: translated.map((term) => ({ term, origin: 'translit' as const })),
+          },
+        ],
+      });
+      rows = await runQuery(widened);
+    }
+  }
 
   const pageRows = rows.slice(0, q.limit);
   const pageIds = pageRows.map((r) => r.p.projectId);
@@ -204,12 +391,13 @@ export async function listProjects(
 
   let nextCursor: string | null = null;
   if (rows.length > q.limit) {
-    const last = items[items.length - 1];
-    if (last?.createdAt) {
-      nextCursor = encodeCursor({
-        createdAt: last.createdAt.toISOString(),
-        id: last.projectId,
-      });
+    if (isSearch) {
+      nextCursor = encodeOffsetCursor(searchOffset + q.limit);
+    } else {
+      const last = pageRows[pageRows.length - 1];
+      if (last) {
+        nextCursor = encodeCursor({ createdAt: last.createdAtExact, id: last.p.projectId });
+      }
     }
   }
 
@@ -515,6 +703,9 @@ export async function updateProject(
 }
 
 export async function deleteProject(projectId: string, actor: AuditActor): Promise<void> {
+  // Photo files kept on this server (PHOTO_STORAGE=local) are removed once
+  // the cascade has deleted their rows (finding S-21).
+  let localPhotoRefs: string[] = [];
   await db.transaction(async (tx) => {
     const [pre] = await tx.select().from(project).where(eq(project.projectId, projectId)).limit(1);
     if (!pre) {
@@ -541,11 +732,16 @@ export async function deleteProject(projectId: string, actor: AuditActor): Promi
       ),
     });
 
+    const photoRows = await tx
+      .select({ url: geoPhoto.url })
+      .from(geoPhoto)
+      .where(eq(geoPhoto.projectId, projectId));
+    localPhotoRefs = photoRows.map((r) => r.url).filter(isLocalPhotoRef);
+
     await tx.delete(project).where(eq(project.projectId, projectId));
   });
+  await Promise.all(localPhotoRefs.map((ref) => deleteLocalPhoto(ref)));
 }
-
-export const projectIdParamSchema = z.object({ projectId: z.string().uuid() });
 
 /**
  * Cheap access check — reads only the division_id column. Used by the
@@ -784,10 +980,7 @@ export async function transferTenderSubStage(
 
 export const updateProjectNitSchema = z.object({
   nitNumber: z.string().min(1).max(80).nullable(),
-  nitDate: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD')
-    .nullable(),
+  nitDate: isoDate().nullable(),
 });
 export type UpdateProjectNitInput = z.infer<typeof updateProjectNitSchema>;
 

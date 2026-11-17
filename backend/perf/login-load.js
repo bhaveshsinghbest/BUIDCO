@@ -1,26 +1,35 @@
 /**
  * Performance test for POST /api/auth/login.
  *
- * ⚠️ Every request will trip the loginLimiter (5 attempts / 15 min per IP)
- * unless UPSTASH env vars are cleared. This script is for measuring the
- * PIPE — express + zod + bcrypt.compare + DB SELECT — not for real load
+ * ⚠️ Development only. Every request counts against the login limits (per
+ * account and per IP) wherever rate limiting is on. This script measures
+ * the PIPE — express + zod + bcrypt.compare + DB SELECT — not real load
  * against a limited endpoint.
  *
  * Local workflow:
- *   1. Terminal A: unset UPSTASH_REDIS_REST_URL, then npm run dev.
- *      Rate limiter falls back to the no-op, so we measure the true cost
- *      of the handler.
- *   2. Terminal B: npm run perf:login
+ *   1. Terminal A: npm run dev (development: rate limiting is off unless
+ *      RATE_LIMIT_STORE is set), so we measure the true cost of the handler.
+ *   2. Terminal B: TEST_USERNAME=... TEST_PASSWORD=... npm run perf:login
  *
- * Reads TEST_USERNAME + TEST_PASSWORD from env. These MUST exist in your
- * local DB — seed with `npm run db:seed-admin`. Never run this against
- * Render / Neon prod — the DB writes and rate limiter make that unsafe.
+ * Credentials come from TEST_USERNAME + TEST_PASSWORD only (finding S-32):
+ * there is no fallback, so a published default can never be tried against a
+ * server. Use a throwaway account on your local database — never a real
+ * account, and never a deployed environment.
  */
 import autocannon from 'autocannon';
 
 const url = process.env.TARGET_URL ?? 'http://localhost:4000';
-const username = process.env.TEST_USERNAME ?? 'shri';
-const password = process.env.TEST_PASSWORD ?? 'ChangeMe123!';
+const username = process.env.TEST_USERNAME;
+const password = process.env.TEST_PASSWORD;
+
+if (!username || !password) {
+  process.stderr.write('Set TEST_USERNAME and TEST_PASSWORD (a throwaway local account) before running perf:login.\n');
+  process.exit(1);
+}
+if (!/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(url)) {
+  process.stderr.write(`Refusing to load-test ${url}: perf:login is for a local development server only.\n`);
+  process.exit(1);
+}
 
 const instance = autocannon({
   url: `${url}/api/auth/login`,

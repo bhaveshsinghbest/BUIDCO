@@ -73,11 +73,14 @@ export const uploadFileRouter = {
       }
 
       const [p] = await db
-        .select({ projectName: project.projectName })
+        .select({ projectName: project.projectName, divisionId: project.divisionId })
         .from(project)
         .where(eq(project.projectId, input.projectId))
         .limit(1);
-      if (!p) {
+      // A PD may only attach photos to projects of the division they signed
+      // in with — the same rule (and the same "not found" answer, which does
+      // not confirm the project exists) as every other project route (S-21).
+      if (!p || (r.user.role === 'PD' && p.divisionId !== r.user.divisionId)) {
         throw new UploadThingError(`Project ${input.projectId} does not exist`);
       }
 

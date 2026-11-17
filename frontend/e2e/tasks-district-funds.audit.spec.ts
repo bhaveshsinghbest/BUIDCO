@@ -2,8 +2,10 @@
  * Acceptance + regression checks for bhaveshTask.md Tasks 2-4.
  *
  *   Task 2 — the District column is gone from the Projects listing table.
- *   Task 3 — the Funds & UC ledger header stays put while scrolling.
- *   Task 4 — Central/State Share % show a figure for every funding source.
+ *   Task 3 — the Funds & UC table header stays put while scrolling (now the
+ *            UC watch-list of the Funds Flow & UC Tracker).
+ *   Task 4 — Central/State Share % show a figure for every funding source
+ *            (now in the Project-wise project panel).
  *
  * Runs against the real local stack, because all three are about what
  * actually lands on screen with real data behind it.
@@ -109,39 +111,35 @@ test.describe('bhaveshTask Tasks 2-4', () => {
   });
 
   /* ---------------- Tasks 3 + 4 ---------------- */
+  // The Funds & UC page is now the Funds Flow & UC Tracker. Its scrolling
+  // table is the UC watch-list, and each project's Central/State split is
+  // shown in the Project-wise panel.
 
-  test('Task 3 — Funds & UC ledger header stays visible while scrolling', async ({ page }) => {
+  test('Task 3 — Funds & UC table header stays visible while scrolling', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await signIn(page);
     await page.goto('/funds-uc');
 
-    // "Central Share (%)" exists only on the ledger, not the summary table.
-    const centralTh = page.locator('th', { hasText: 'Central Share (%)' }).first();
-    await expect(centralTh).toBeVisible({ timeout: 30_000 });
+    const watchList = page.getByTestId('uc-watch-list');
+    const notCoveredTh = watchList.locator('th', { hasText: 'Not covered' }).first();
+    await expect(notCoveredTh).toBeVisible({ timeout: 30_000 });
+    await watchList.scrollIntoViewIfNeeded();
 
-    const before = await centralTh.boundingBox();
+    const before = await notCoveredTh.boundingBox();
     expect(before).not.toBeNull();
 
-    // Scroll the ledger's own container to the bottom.
-    const scrolled = await centralTh.evaluate((el) => {
-      let node: HTMLElement | null = el.parentElement;
-      while (node) {
-        const style = getComputedStyle(node);
-        if (/(auto|scroll)/.test(style.overflowY) && node.scrollHeight > node.clientHeight) {
-          node.scrollTop = node.scrollHeight;
-          return node.scrollTop;
-        }
-        node = node.parentElement;
-      }
-      return 0;
+    // Scroll the watch-list's own container to the bottom.
+    const scrolled = await watchList.evaluate((el) => {
+      el.scrollTop = el.scrollHeight;
+      return el.scrollTop;
     });
     // A vacuous pass is worse than a failure: if nothing scrolled, the
     // sticky behaviour was never actually exercised.
-    expect(scrolled, 'ledger container did not scroll — not enough rows to test stickiness').toBeGreaterThan(0);
+    expect(scrolled, 'watch-list did not scroll — not enough rows to test stickiness').toBeGreaterThan(0);
 
     await page.waitForTimeout(300);
-    await expect(centralTh).toBeVisible();
-    const after = await centralTh.boundingBox();
+    await expect(notCoveredTh).toBeVisible();
+    const after = await notCoveredTh.boundingBox();
     expect(after).not.toBeNull();
     expect(
       Math.abs(after!.y - before!.y),
@@ -155,44 +153,27 @@ test.describe('bhaveshTask Tasks 2-4', () => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await signIn(page);
     await page.goto('/funds-uc');
+    await page.getByRole('tab', { name: /Project-wise/ }).click();
 
-    const centralTh = page.locator('th', { hasText: 'Central Share (%)' }).first();
-    await expect(centralTh).toBeVisible({ timeout: 30_000 });
-
-    // Column index of each share column within the ledger table.
-    const ledger = page.locator('table').filter({ has: page.locator('th', { hasText: 'Central Share (%)' }) }).first();
-    // Header cells are styled `uppercase`, and innerText returns the
-    // transformed text — so match case-insensitively, not on the label as
-    // written in the JSX.
-    const headers = (await ledger.locator('thead th').allInnerTexts()).map((t) =>
-      t.replace(/\s+/g, ' ').trim().toLowerCase(),
-    );
-    const centralIdx = headers.findIndex((h) => h.startsWith('central share'));
-    const stateIdx = headers.findIndex((h) => h.startsWith('state share'));
-    expect(centralIdx, `no Central Share column. Headers: ${JSON.stringify(headers)}`).toBeGreaterThanOrEqual(0);
-    expect(stateIdx, `no State Share column. Headers: ${JSON.stringify(headers)}`).toBeGreaterThanOrEqual(0);
-
-    const sourceIdx = headers.findIndex((h) => h.startsWith('funding source'));
-    expect(sourceIdx).toBeGreaterThanOrEqual(0);
-
-    const rows = ledger.locator('tbody tr');
-    const count = await rows.count();
-    expect(count, 'no ledger rows to verify').toBeGreaterThan(0);
+    const rows = page.getByTestId('project-fund-table').locator('tbody tr');
+    await expect(rows.first()).toBeVisible({ timeout: 30_000 });
+    const count = Math.min(await rows.count(), 15);
+    expect(count, 'no projects to verify').toBeGreaterThan(0);
 
     const seen = new Map<string, string>();
     for (let i = 0; i < count; i += 1) {
-      const cells = rows.nth(i).locator('td');
-      const source = (await cells.nth(sourceIdx).innerText()).trim();
-      const central = (await cells.nth(centralIdx).innerText()).trim();
-      const state = (await cells.nth(stateIdx).innerText()).trim();
-
-      expect(central, `row ${i + 1} (${source}) shows no Central Share %`).not.toBe('—');
-      expect(state, `row ${i + 1} (${source}) shows no State Share %`).not.toBe('—');
-      if (!seen.has(source)) seen.set(source, `${central} / ${state}`);
+      await rows.nth(i).click();
+      const line = page.getByTestId('project-uc-status').getByText(/^Funding source:/);
+      await expect(line).toBeVisible();
+      const text = (await line.innerText()).replace(/\s+/g, ' ').trim();
+      const m = /^Funding source: (.+?) · Central (\d+(?:\.\d+)?)% \/ State (\d+(?:\.\d+)?)%$/.exec(text);
+      expect(m, `project ${i + 1} shows no Central / State split: "${text}"`).not.toBeNull();
+      const [, source, central, state] = m!;
+      if (!seen.has(source!)) seen.set(source!, `${central}% / ${state}%`);
     }
 
-    // Every funding source present in the data produced a figure, and the
-    // derived ones read the way the funding source implies.
+    // Every funding source present produced a figure, and the derived ones
+    // read the way the funding source implies.
     for (const [source, value] of seen) {
       if (source === 'Central - EAP' || source === 'Central - Non-EAP') {
         expect(value, `${source} should be fully central`).toBe('100% / 0%');
@@ -201,7 +182,7 @@ test.describe('bhaveshTask Tasks 2-4', () => {
         expect(value, `${source} should be fully state`).toBe('0% / 100%');
       }
     }
-    expect(seen.size, 'expected more than one funding source in the ledger').toBeGreaterThan(1);
+    expect(seen.size, 'expected more than one funding source').toBeGreaterThan(1);
 
     await shot(page, 'task4-share-percentages');
   });

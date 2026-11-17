@@ -1,9 +1,29 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { actorFromReq } from '../lib/actor.js';
+import { logger } from '../lib/logger.js';
 import { requireAuth, requireRole, requireWriter } from '../middleware/auth.js';
 import * as service from '../services/usersService.js';
 import { dbId } from '../lib/ids.js';
+
+/**
+ * Account and permission changes go to the security log as well as the
+ * audit trail (S-11): which fields changed, never their values — the body
+ * can hold a new password or contact details.
+ */
+function logAccountChange(
+  event: 'users.created' | 'users.updated' | 'users.deleted',
+  actor: { userId: number | null; role: string },
+  targetUserId: number,
+  fields: string[] = [],
+): void {
+  logger.info(event, {
+    actorUserId: actor.userId,
+    actorRole: actor.role,
+    targetUserId,
+    changedFields: fields.map((f) => (f === 'password' ? 'password(reset)' : f)),
+  });
+}
 
 /**
  * User management endpoints.
@@ -36,7 +56,9 @@ usersRouter.get('/', requireRole('MD', 'Admin', 'PD'), async (req, res, next) =>
 usersRouter.post('/', requireWriter, async (req, res, next) => {
   try {
     const body = service.createUserSchema.parse(req.body);
-    const out = await service.createUser(body, actorFromReq(req));
+    const actor = actorFromReq(req);
+    const out = await service.createUser(body, actor);
+    logAccountChange('users.created', actor, out.userId, ['role', ...Object.keys(body).filter((k) => k.startsWith('can'))]);
     res.status(201).json(out);
   } catch (err) {
     next(err);
@@ -47,7 +69,9 @@ usersRouter.patch('/:userId', requireWriter, async (req, res, next) => {
   try {
     const { userId } = idParam.parse(req.params);
     const body = service.updateUserSchema.parse(req.body);
-    const out = await service.updateUser(userId, body, actorFromReq(req));
+    const actor = actorFromReq(req);
+    const out = await service.updateUser(userId, body, actor);
+    logAccountChange('users.updated', actor, userId, Object.keys(body));
     res.json(out);
   } catch (err) {
     next(err);
@@ -57,7 +81,9 @@ usersRouter.patch('/:userId', requireWriter, async (req, res, next) => {
 usersRouter.delete('/:userId', requireRole('MD', 'Admin', 'PD'), async (req, res, next) => {
   try {
     const { userId } = idParam.parse(req.params);
-    await service.deleteUser(userId, actorFromReq(req));
+    const actor = actorFromReq(req);
+    await service.deleteUser(userId, actor);
+    logAccountChange('users.deleted', actor, userId);
     res.status(204).end();
   } catch (err) {
     next(err);

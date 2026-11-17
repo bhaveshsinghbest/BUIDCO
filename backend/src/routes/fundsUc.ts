@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { actorFromReq, sessionDivisionId } from '../lib/actor.js';
-import { requireAuth, requireWriter } from '../middleware/auth.js';
+import { requireProjectReader, requireWriter } from '../middleware/auth.js';
 import * as service from '../services/fundsUcService.js';
 import { dbId } from '../lib/ids.js';
 
 export const fundsUcRouter = Router();
 
-fundsUcRouter.use(requireAuth);
+// Signed in AND "Can view projects" (S-03).
+fundsUcRouter.use(...requireProjectReader);
 
 const idParam = z.object({ fundsUcId: dbId });
 

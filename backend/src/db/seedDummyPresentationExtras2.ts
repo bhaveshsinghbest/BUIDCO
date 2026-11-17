@@ -35,6 +35,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, pool } from './client.js';
+import { assertDemoSeedingAllowed } from './seedGuard.js';
 import { managementActionItem, minutesOfMeeting, project, projectFundsUc, projectMilestone } from './schema.js';
 import type { AuditActor } from '../lib/audit.js';
 import { updateProject } from '../services/projectsService.js';
@@ -245,6 +246,7 @@ async function ensureManagementAction(p: ProjectRow): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  await assertDemoSeedingAllowed('seedDummyPresentationExtras2');
   const rows = await db.select().from(project);
   const dummy = rows.filter((r) => DUMMY_NAME_PATTERN.test(r.projectName));
   process.stdout.write(`Processing ${dummy.length} dummy projects...\n`);

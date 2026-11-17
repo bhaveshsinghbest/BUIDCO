@@ -64,8 +64,26 @@ test.describe('QA sweep — every page, every breakpoint', () => {
       for (const p of PAGES) {
         consoleErrors.length = 0;
         await page.goto(p.path, { waitUntil: 'domcontentloaded' });
-        // Let data queries settle; these pages all fetch on mount.
-        await page.waitForTimeout(1200);
+        // Wait for CONTENT, not for a fixed delay.
+        //
+        // The Vite dev server compiles modules on demand, so the first visit
+        // to a route after a restart can take well over a second while the
+        // page is merely still compiling. A flat 1200 ms wait reported that
+        // as "page appears blank" — a false failure that moved around
+        // depending on how warm the server happened to be, and which only
+        // ever hit the first few pages of the sweep. Measured warm, these
+        // pages carry 600-16,000 characters within 1200 ms, so the wait
+        // below is slack for the compiler, not for the product.
+        //
+        // The blank assertion still stands: a page that never renders fails
+        // here on the timeout and then fails the check.
+        await page
+          .waitForFunction(() => document.body.innerText.trim().length >= 20, null, {
+            timeout: 15_000,
+          })
+          .catch(() => undefined);
+        // Then let the on-mount data queries settle.
+        await page.waitForTimeout(800);
 
         // 1. Something actually rendered.
         const bodyText = (await page.locator('body').innerText()).trim();

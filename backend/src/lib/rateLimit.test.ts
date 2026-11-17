@@ -3,7 +3,71 @@
  * and an unthrottled login endpoint, so it gets tested like the real thing.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createInMemoryLimiter } from './rateLimit.js';
+import { createInMemoryLimiter, createPostgresLimiter, resolveStore, type CounterQuery } from './rateLimit.js';
+
+describe('resolveStore (S-14)', () => {
+  const base = { UPSTASH_REDIS_REST_URL: undefined, UPSTASH_REDIS_REST_TOKEN: undefined };
+
+  it('an explicit RATE_LIMIT_STORE always wins', () => {
+    expect(resolveStore({ ...base, NODE_ENV: 'production', RATE_LIMIT_STORE: 'postgres' })).toBe('postgres');
+    expect(resolveStore({ ...base, NODE_ENV: 'development', RATE_LIMIT_STORE: 'memory' })).toBe('memory');
+  });
+
+  it('falls back to Upstash when configured, else memory in production, else off', () => {
+    expect(
+      resolveStore({
+        NODE_ENV: 'production',
+        RATE_LIMIT_STORE: undefined,
+        UPSTASH_REDIS_REST_URL: 'https://redis.example.invalid',
+        UPSTASH_REDIS_REST_TOKEN: 't',
+      }),
+    ).toBe('upstash');
+    expect(resolveStore({ ...base, NODE_ENV: 'production', RATE_LIMIT_STORE: undefined })).toBe('memory');
+    expect(resolveStore({ ...base, NODE_ENV: 'development', RATE_LIMIT_STORE: undefined })).toBe('off');
+    expect(resolveStore({ ...base, NODE_ENV: 'test', RATE_LIMIT_STORE: undefined })).toBe('off');
+  });
+});
+
+describe('createPostgresLimiter', () => {
+  /** Mimics the atomic upsert: one fixed window per bucket key. */
+  function fakeCounter(): CounterQuery & { calls: string[] } {
+    const buckets = new Map<string, { hits: number; startedMs: number }>();
+    const calls: string[] = [];
+    const fn = (async (key: string, windowSeconds: number) => {
+      calls.push(key);
+      const now = Date.now();
+      const b = buckets.get(key);
+      if (!b || b.startedMs <= now - windowSeconds * 1000) {
+        buckets.set(key, { hits: 1, startedMs: now });
+        return { hits: 1, windowStartedMs: now };
+      }
+      b.hits += 1;
+      return { hits: b.hits, windowStartedMs: b.startedMs };
+    }) as CounterQuery & { calls: string[] };
+    fn.calls = calls;
+    return fn;
+  }
+
+  const noCleanup = (): void => undefined;
+
+  it('allows the budget, then refuses, with a reset at the end of the window', async () => {
+    const counter = fakeCounter();
+    const limit = createPostgresLimiter('rl:test', 2, 60_000, counter, noCleanup);
+    expect((await limit('ip:1')).success).toBe(true);
+    expect((await limit('ip:1')).success).toBe(true);
+    const third = await limit('ip:1');
+    expect(third.success).toBe(false);
+    expect(third.remaining).toBe(0);
+    expect(third.reset).toBeGreaterThan(Date.now());
+  });
+
+  it('namespaces keys by limiter, so two limiters never share a bucket', async () => {
+    const counter = fakeCounter();
+    await createPostgresLimiter('rl:auth:login', 5, 60_000, counter, noCleanup)('ip:1');
+    await createPostgresLimiter('rl:auth:login-ip', 5, 60_000, counter, noCleanup)('ip:1');
+    expect(counter.calls).toEqual(['rl:auth:login:ip:1', 'rl:auth:login-ip:ip:1']);
+  });
+});
 
 describe('createInMemoryLimiter', () => {
   beforeEach(() => {

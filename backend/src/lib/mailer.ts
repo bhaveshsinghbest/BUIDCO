@@ -1,26 +1,34 @@
 /**
- * OTP delivery.
+ * Password-reset code delivery by e-mail (SMTP, nodemailer).
  *
- * Email — real, via SMTP (nodemailer). If SMTP env vars are unset, falls
- * back to logging the OTP server-side instead of throwing, mirroring the
- * graceful degradation already used for Upstash in rateLimit.ts (warn in
- * dev, fatal in prod).
- *
- * SMS — stub only. No SMS gateway is configured yet; sendOtpSms logs the
- * OTP server-side instead of texting it. Swap in a real provider (e.g.
- * Twilio) here when one is chosen — callers don't need to change.
+ * Security finding S-04:
+ *   - An OTP is never written to a log, the console or an error message.
+ *     When SMTP is not configured the code simply cannot be delivered: the
+ *     password-reset endpoints answer 503 OTP_DELIVERY_UNAVAILABLE before
+ *     any code is generated (see passwordResetService). For local testing,
+ *     point SMTP_* at a local mail catcher (e.g. Mailpit) instead.
+ *   - Mobile (SMS) delivery has been removed: no SMS gateway has been
+ *     approved, and the previous stub "delivered" codes by printing them to
+ *     the server log. If a gateway (e.g. the NIC SMS gateway) is approved
+ *     later, add a sender here and re-enable the "mobile" channel in
+ *     passwordResetService.assertOtpDeliveryPossible.
  */
 
 import nodemailer, { type Transporter } from 'nodemailer';
-import { env, isProduction } from '../env.js';
+import { env } from '../env.js';
+import { logger } from './logger.js';
 
 const hasSmtp = Boolean(env.SMTP_HOST && env.SMTP_USER && env.SMTP_PASS);
 
 if (!hasSmtp) {
-  const msg = isProduction
-    ? 'FATAL: SMTP_HOST/USER/PASS missing in production — email OTP will only be logged, not sent.'
-    : 'warn: SMTP_HOST/USER/PASS missing — email OTP will be logged instead of sent (dev only).';
-  process.stderr.write(`${msg}\n`);
+  logger.warn('config.smtp_missing', {
+    effect: 'password-reset codes cannot be sent; the reset endpoints answer 503 until SMTP_HOST/USER/PASS are set',
+  });
+}
+
+/** Whether password-reset codes can be delivered at all on this server. */
+export function isEmailDeliveryConfigured(): boolean {
+  return hasSmtp;
 }
 
 let transporter: Transporter | null = null;
@@ -36,22 +44,22 @@ function getTransporter(): Transporter {
   return transporter;
 }
 
-export async function sendOtpEmail(to: string, otp: string): Promise<void> {
+function assertConfigured(): void {
   if (!hasSmtp) {
-    process.stdout.write(`[EMAIL OTP — SMTP not configured] to=${to} otp=${otp}\n`);
-    return;
+    // Callers check isEmailDeliveryConfigured() first; this is the backstop.
+    // The message deliberately carries neither the recipient nor the code.
+    throw new Error('E-mail delivery is not configured');
   }
+}
+
+export async function sendOtpEmail(to: string, otp: string): Promise<void> {
+  assertConfigured();
   await getTransporter().sendMail({
     from: env.SMTP_FROM ?? 'BUIDCO Portal <no-reply@buidco.in>',
     to,
     subject: 'Your BUIDCO Portal password reset code',
     text: `Your password reset code is ${otp}. It expires in 5 minutes. If you did not request this, you can ignore this email.`,
   });
-}
-
-/** SMS gateway not yet chosen — logs the OTP server-side instead of texting it. */
-export function sendOtpSms(mobile: string, otp: string): void {
-  process.stdout.write(`[SMS STUB — no gateway configured] to=${mobile} otp=${otp}\n`);
 }
 
 /**
@@ -66,12 +74,7 @@ export async function sendApprovalRequestEmail(
   requesterRole: string,
   otp: string,
 ): Promise<void> {
-  if (!hasSmtp) {
-    process.stdout.write(
-      `[APPROVAL EMAIL — SMTP not configured] to=${to} requester=${requesterUsername} (${requesterRole}) otp=${otp}\n`,
-    );
-    return;
-  }
+  assertConfigured();
   await getTransporter().sendMail({
     from: env.SMTP_FROM ?? 'BUIDCO Portal <no-reply@buidco.in>',
     to,

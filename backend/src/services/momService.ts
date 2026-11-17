@@ -7,30 +7,26 @@
  * `projectId` when present so the trail is discoverable from a project.
  */
 
-import { and, desc, eq, lt, or } from 'drizzle-orm';
+import { and, desc, eq, sql, type SQL } from 'drizzle-orm';
 import { z } from 'zod';
+import { isoDate, optionalIsoDate } from '../lib/validators.js';
 import { db } from '../db/client.js';
 import { momStatuses, openClosedStatuses } from '../db/enums.js';
 import { minutesOfMeeting, momActionPoint, project } from '../db/schema.js';
 import type { MinutesOfMeeting, MomActionPoint } from '../db/schema.js';
 import { recordAudit, type AuditActor } from '../lib/audit.js';
 import { diffMom, diffMomAction } from '../lib/auditLabels.js';
-import { decodeCursor, encodeCursor } from '../lib/pagination.js';
+import { decodeCursor, encodeCursor, exactTimestamp, keysetAfter } from '../lib/pagination.js';
 import { HttpError } from '../middleware/errorHandler.js';
 
-const dateField = () =>
-  z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD')
-    .nullable()
-    .optional();
+const dateField = optionalIsoDate;
 
 /* ============================================================
  * Zod schemas
  * ============================================================ */
 
 export const momCreateSchema = z.object({
-  meetingDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD'),
+  meetingDate: isoDate(),
   meetingTitle: z.string().min(1).max(200),
   venue: z.string().max(150).nullable().optional(),
   chairperson: z.string().max(120).nullable().optional(),
@@ -100,45 +96,59 @@ export interface MomDetail extends MinutesOfMeeting {
   actionPoints: MomActionPoint[];
 }
 
+/**
+ * Division scope for a Project Director. A meeting linked to a project is
+ * visible only when that project is in the PD's division — the same rule
+ * every other project-scoped module applies. Unlinked (portfolio-level)
+ * meetings stay visible to everyone.
+ */
+function pdMomScope(pdDivisionId: number) {
+  return sql`(${minutesOfMeeting.projectId} IS NULL OR ${minutesOfMeeting.projectId} IN (
+    SELECT ${project.projectId} FROM ${project} WHERE ${project.divisionId} = ${pdDivisionId}))`;
+}
+
+/** 404 (not 403) for a PD opening a meeting outside their division, so existence isn't leaked. */
+export async function assertPdCanAccessMom(momId: number, pdDivisionId: number): Promise<void> {
+  const [row] = await db
+    .select({ momId: minutesOfMeeting.momId })
+    .from(minutesOfMeeting)
+    .where(and(eq(minutesOfMeeting.momId, momId), pdMomScope(pdDivisionId)))
+    .limit(1);
+  if (!row) throw new HttpError(404, 'MOM_NOT_FOUND', `MoM ${momId} does not exist`);
+}
+
 export async function listMom(
   q: ListMomQuery,
+  pdDivisionId: number | null = null,
 ): Promise<{ items: MinutesOfMeeting[]; nextCursor: string | null }> {
-  const wheres = [] as ReturnType<typeof eq>[];
+  const wheres = [] as SQL[];
   if (q.projectId) wheres.push(eq(minutesOfMeeting.projectId, q.projectId));
+  if (pdDivisionId !== null) wheres.push(pdMomScope(pdDivisionId));
   if (q.cursor) {
     const c = decodeCursor(q.cursor);
-    const cursorDate = new Date(c.createdAt);
     const cursorId = Number(c.id);
     if (!Number.isInteger(cursorId)) {
       throw new HttpError(400, 'BAD_CURSOR', 'Cursor id is not an integer');
     }
-    wheres.push(
-      or(
-        lt(minutesOfMeeting.createdAt, cursorDate),
-        and(eq(minutesOfMeeting.createdAt, cursorDate), lt(minutesOfMeeting.momId, cursorId)),
-      )!,
-    );
+    wheres.push(keysetAfter(minutesOfMeeting.createdAt, minutesOfMeeting.momId, c.createdAt, cursorId));
   }
 
   const rows = await db
-    .select()
+    .select({ m: minutesOfMeeting, createdAtExact: exactTimestamp(minutesOfMeeting.createdAt) })
     .from(minutesOfMeeting)
     .where(wheres.length > 0 ? and(...wheres) : undefined)
     .orderBy(desc(minutesOfMeeting.createdAt), desc(minutesOfMeeting.momId))
     .limit(q.limit + 1);
 
   let nextCursor: string | null = null;
-  const items = rows.slice(0, q.limit);
+  const pageRows = rows.slice(0, q.limit);
   if (rows.length > q.limit) {
-    const last = items[items.length - 1];
-    if (last?.createdAt) {
-      nextCursor = encodeCursor({
-        createdAt: last.createdAt.toISOString(),
-        id: String(last.momId),
-      });
+    const last = pageRows[pageRows.length - 1];
+    if (last) {
+      nextCursor = encodeCursor({ createdAt: last.createdAtExact, id: String(last.m.momId) });
     }
   }
-  return { items, nextCursor };
+  return { items: pageRows.map((r) => r.m), nextCursor };
 }
 
 export async function getMom(momId: number): Promise<MomDetail> {

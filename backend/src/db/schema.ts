@@ -355,15 +355,41 @@ export const projectFundsUc = pgTable(
       .unique()
       .references(() => project.projectId, { onDelete: 'cascade' }),
     fundingSource: varchar('funding_source', { length: 30 }).notNull(),
+    /* Funds Flow & UC (drizzle/0019) — the chain is
+     *   Sanctioning Agency → UDHD → BUIDCo → Contractors / Payees,
+     * and the UC travels back BUIDCo → UDHD → Agency. The three GFR 12-A
+     * ledger columns keep their names; two of them now carry the stage
+     * meanings below. */
+    /** ① Who sanctioned the money (MoHUA / NMCG / State …). */
+    fundSanctionAgency: varchar('fund_sanction_agency', { length: 40 }),
+    /** ① Amount sanctioned by that agency. NULL = not entered, in which case
+     *  the project's Sanctioned Cost (Revised AA, else AA) is used. */
+    fundSanctionedAmountCr: numeric('fund_sanctioned_amount_cr', { precision: 12, scale: 2 }),
+    /** ① Date of the sanction letter (its number is `sanctionNo`). */
+    sanctionDate: date('sanction_date'),
+    /** ② Released by the agency to UDHD. NULL = not entered (assumed equal
+     *  to the amount received by BUIDCo); 0 is a real, entered figure. */
+    fundReleasedToUdhdCr: numeric('fund_released_to_udhd_cr', { precision: 12, scale: 2 }),
+    /** ③ Balance brought forward with BUIDCo at the start of the UC period. */
     openingBalanceCr: numeric('opening_balance_cr', { precision: 12, scale: 2 }).notNull().default('0'),
+    /** ③ Received by BUIDCo (from UDHD / agency). */
     grantReceivedCr: numeric('grant_received_cr', { precision: 12, scale: 2 }).notNull().default('0'),
+    /** ④ Paid / released by BUIDCo to contractors and payees. */
     expenditureIncurredCr: numeric('expenditure_incurred_cr', { precision: 12, scale: 2 }).notNull().default('0'),
+    /** ⑤ Amount covered by the UC submitted to the department. */
+    ucAmountCertifiedCr: numeric('uc_amount_certified_cr', { precision: 12, scale: 2 }),
+    /** ⑤ Department the UC was sent to. */
+    ucSentTo: varchar('uc_sent_to', { length: 40 }),
+    /** ⑤ Manual UC status. When set it always wins over the date-based
+     *  Submitted / Overdue status (e.g. "Acknowledged"). */
+    ucStatusOverride: varchar('uc_status_override', { length: 20 }),
     /** Only meaningful when fundingSource = 'Central - State Share' — the
      *  split of that combined share between the Centre and the State, as a
      *  PERCENTAGE (0-100), not a ₹ Cr amount. */
     centralSharePct: numeric('central_share_pct', { precision: 5, scale: 2 }),
     stateSharePct: numeric('state_share_pct', { precision: 5, scale: 2 }),
     sanctionNo: varchar('sanction_no', { length: 80 }),
+    /** ⑤ Date the UC was submitted; its presence means "UC sent". */
     ucSubmittedDate: date('uc_submitted_date'),
     remarks: text('remarks'),
     createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
@@ -516,6 +542,18 @@ export const refreshToken = pgTable(
     /** PD's chosen division for this session; NULL for MD/Admin/Viewer. */
     selectedDivisionId: integer('selected_division_id')
       .references(() => division.divisionId),
+    /**
+     * One sign-in = one session (0020_refresh_token_session.sql). Every token
+     * in a rotation chain shares it, access tokens carry it as `sid`, and
+     * requireAuth only accepts an access token while its session still has a
+     * live row — so logout, password reset, reuse detection and the absolute
+     * lifetime end access immediately (finding S-15). NULL on rows issued
+     * before 0020; such a row is adopted into a new session on its next
+     * refresh.
+     */
+    sessionId: text('session_id'),
+    /** When the user signed in; bounds the session at SESSION_MAX_AGE_SECONDS. */
+    sessionStartedAt: timestamp('session_started_at', { withTimezone: true }),
   },
   (t) => ({
     userIdx: index('idx_refresh_token_user').on(t.userId),

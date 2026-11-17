@@ -31,6 +31,7 @@ import { fileURLToPath } from 'node:url';
 import { createContext, Script } from 'node:vm';
 import { eq } from 'drizzle-orm';
 import { db, pool } from './client.js';
+import { assertDemoSeedingAllowed } from './seedGuard.js';
 import { project, projectScheme, scheme, sector } from './schema.js';
 import { recordAudit, type AuditActor } from '../lib/audit.js';
 import { diffProject } from '../lib/auditLabels.js';
@@ -398,6 +399,7 @@ function parseLimitFlag(argv: string[]): number | null {
 }
 
 async function run(): Promise<void> {
+  await assertDemoSeedingAllowed('seedProjects');
   const limit = parseLimitFlag(process.argv.slice(2));
   const jsxPath = findJsxPath();
   process.stdout.write(`Reading ${jsxPath}\n`);

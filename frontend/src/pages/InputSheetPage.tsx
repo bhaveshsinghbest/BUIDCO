@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { NavLink, useNavigate, useParams } from 'react-router-dom';
 import { useListCosEotForProjectQuery } from '../app/api/cosEotApi';
-import { useListFundsUcQuery } from '../app/api/fundsUcApi';
+import { useGetFundsUcByProjectQuery } from '../app/api/fundsUcApi';
 import { useListGeoPhotosQuery } from '../app/api/geoPhotosApi';
 import { useListMgmtActionsForProjectQuery } from '../app/api/mgmtActionsApi';
 import {
@@ -16,7 +16,7 @@ import { ActionRemarksSection } from '../components/input-sheet/ActionRemarksSec
 import { BasicInfoSection } from '../components/input-sheet/BasicInfoSection';
 import { ContractSecuritySection } from '../components/input-sheet/ContractSecuritySection';
 import { CosEotSection } from '../components/input-sheet/CosEotSection';
-import { FundingSourceSection } from '../components/input-sheet/FundingSourceSection';
+import { FundsUcSection, type FundsUcSectionHandle } from '../components/input-sheet/FundsUcSection';
 import { GeoTaggingSection } from '../components/input-sheet/GeoTaggingSection';
 import { ImportProjectDialog } from '../components/input-sheet/ImportProjectDialog';
 import { OmDetailsSection } from '../components/input-sheet/OmDetailsSection';
@@ -65,7 +65,7 @@ const VARIABLE_SECTIONS: SectionDef[] = [
   { id: 'geo', label: '04 GeoTagging' },
   { id: 'action', label: '05 Action & Remarks' },
   { id: 'om', label: '06 O&M Details' },
-  { id: 'funding', label: '07 Funding Source' },
+  { id: 'funding', label: '07 Funds & UC' },
 ];
 
 const FIXED_IDS = new Set<SectionId>(FIXED_SECTIONS.map((s) => s.id));
@@ -102,8 +102,10 @@ export function InputSheetPage(): JSX.Element {
   const cosEot = useListCosEotForProjectQuery(projectId ?? '', { skip: !isEdit });
   const mgmt = useListMgmtActionsForProjectQuery(projectId ?? '', { skip: !isEdit });
   const photos = useListGeoPhotosQuery(projectId ?? '', { skip: !isEdit });
-  const fundsUc = useListFundsUcQuery(undefined, { skip: !isEdit });
-  const fundsUcEntry = fundsUc.data?.items.find((e) => e.projectId === projectId) ?? null;
+  const fundsUc = useGetFundsUcByProjectQuery(projectId ?? '', { skip: !isEdit });
+  const fundsUcEntry = fundsUc.data ?? null;
+  // Lets the main Save also save the Funds & UC section (bhaveshTask.md T-16).
+  const fundsRef = useRef<FundsUcSectionHandle>(null);
 
   const { draft, setField, isDirty } = useProjectDraft(detail.data ?? null);
   const [createProject, createState] = useCreateProjectMutation();
@@ -147,6 +149,18 @@ export function InputSheetPage(): JSX.Element {
 
   const busy = createState.isLoading || updateState.isLoading;
 
+  /** Saves unsaved Funds & UC edits along with the project; returns an error message, or null. */
+  const saveFundsSection = async (targetProjectId: string): Promise<string | null> => {
+    const funds = fundsRef.current;
+    if (!funds?.isDirty()) return null;
+    try {
+      await funds.save(targetProjectId);
+      return null;
+    } catch (err) {
+      return err instanceof Error ? err.message : 'Funds & UC was not saved.';
+    }
+  };
+
   const handleSave = async (): Promise<void> => {
     if (!draft.projectName.trim()) {
       setFlash({ text: 'Project Name is required.', kind: 'err' });
@@ -157,10 +171,16 @@ export function InputSheetPage(): JSX.Element {
       const payload = draftToPayload(draft);
       if (isEdit && projectId) {
         await updateProject({ projectId, body: payload }).unwrap();
-        setFlash({ text: 'Project updated.', kind: 'ok' });
+        const fundsError = await saveFundsSection(projectId);
+        setFlash(fundsError ? { text: `Project updated. ${fundsError}`, kind: 'err' } : { text: 'Project updated.', kind: 'ok' });
       } else {
         const created = await createProject(payload).unwrap();
-        setFlash({ text: 'Project created — switching to edit mode.', kind: 'ok' });
+        const fundsError = await saveFundsSection(created.projectId);
+        setFlash(
+          fundsError
+            ? { text: `Project created. ${fundsError}`, kind: 'err' }
+            : { text: 'Project created — switching to edit mode.', kind: 'ok' },
+        );
         navigate(`/input-sheet/${created.projectId}`, { replace: true });
       }
     } catch (err) {
@@ -469,9 +489,12 @@ export function InputSheetPage(): JSX.Element {
             />
           ) : null}
           {activeGroup === 'all' || section === 'funding' ? (
-            <FundingSourceSection
+            <FundsUcSection
+              ref={fundsRef}
               projectId={projectId ?? null}
               entry={fundsUcEntry}
+              aaAmountCr={draft.aaAmountCr}
+              revisedAaAmountCr={draft.revisedAaAmountCr}
               onEnsureProjectSaved={ensureProjectSaved}
               {...(activeGroup === 'all' ? { num: '09' } : {})}
             />

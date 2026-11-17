@@ -29,6 +29,8 @@ vi.mock('../services/usersService.js', () => ({
 // request "authenticates as".
 vi.mock('../services/authService.js', () => ({
   getUserById: vi.fn(),
+  isSessionActive: vi.fn(async () => true),
+  isDemoLoginBlocked: vi.fn(() => false),
 }));
 
 import * as usersService from '../services/usersService.js';
@@ -58,12 +60,15 @@ function bearer(
     sub: String(userId),
     role,
     name: 'x',
+    sid: 'test-session',
   });
   return `Bearer ${token}`;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  vi.mocked(authService.isSessionActive).mockResolvedValue(true);
+  vi.mocked(authService.isDemoLoginBlocked).mockReturnValue(false);
 });
 
 describe('DELETE /api/users/:userId — auth gating', () => {
@@ -90,6 +95,7 @@ describe('DELETE /api/users/:userId — auth gating', () => {
       sub: '42',
       role: 'PD',
       name: 'x',
+      sid: 'test-session',
       divisionId: 1,
     });
     mockedDelete.mockResolvedValueOnce(undefined);

@@ -6,6 +6,7 @@ import type { AppUser } from '../db/schema.js';
 import { appUser, auditLog, passwordResetRequest, userDivision } from '../db/schema.js';
 import { recordAudit, type AuditActor, type DbExecutor } from '../lib/audit.js';
 import { diffAppUser } from '../lib/auditLabels.js';
+import { canSeeContactDetails } from '../lib/contactPrivacy.js';
 import { hashPassword } from '../lib/passwords.js';
 import { HttpError } from '../middleware/errorHandler.js';
 
@@ -145,7 +146,11 @@ async function syncUserDivisions(
   }
 }
 
-/** Actor role decides scope. Admin sees Viewer + PD users. PD sees Viewer users only. MD sees everyone. */
+/**
+ * Actor role decides scope. Admin sees Viewer + PD users. PD sees Viewer
+ * users only. MD sees everyone. E-mail and mobile are blanked for accounts
+ * the actor does not administer (S-31, lib/contactPrivacy.ts).
+ */
 export async function listUsers(actor: AuditActor): Promise<UserOut[]> {
   const allRows = await db.select().from(appUser).orderBy(appUser.username);
   const scoped =
@@ -155,7 +160,14 @@ export async function listUsers(actor: AuditActor): Promise<UserOut[]> {
         ? allRows.filter((r) => r.role === 'Viewer')
         : allRows; // MD sees everyone
   const divisionMap = await fetchDivisionMap(db, scoped.map((r) => r.userId));
-  return scoped.map((r) => toOut(r, divisionMap.get(r.userId) ?? []));
+  return scoped.map((r) => {
+    const out = toOut(r, divisionMap.get(r.userId) ?? []);
+    if (!canSeeContactDetails(actor, { userId: r.userId, role: r.role as UserRole })) {
+      out.email = null;
+      out.mobileNumber = null;
+    }
+    return out;
+  });
 }
 
 export async function createUser(input: CreateUserInput, actor: AuditActor): Promise<UserOut> {

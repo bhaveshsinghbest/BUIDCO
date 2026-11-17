@@ -1,6 +1,9 @@
-import { sql } from 'drizzle-orm';
+import { eq, inArray, sql } from 'drizzle-orm';
 import { db } from '../db/client.js';
-import { district, division, region, scheme, sector } from '../db/schema.js';
+import { district, division, project, projectScheme, region, scheme, sector } from '../db/schema.js';
+import type { Project } from '../db/schema.js';
+import { recordAudit, type AuditActor, type DbExecutor } from '../lib/audit.js';
+import { diffProject } from '../lib/auditLabels.js';
 import { HttpError } from '../middleware/errorHandler.js';
 
 export interface LookupsResponse {
@@ -79,6 +82,27 @@ export async function createScheme(schemeName: string): Promise<{ schemeId: numb
  * the ordering below is load-bearing, not incidental.
  */
 
+/** One full "Deleted" audit entry per project, matching deleteProject's record. */
+async function auditProjectDeletes(
+  tx: DbExecutor,
+  rows: Project[],
+  actor: AuditActor,
+  schemesOf?: (projectId: string) => number[],
+): Promise<void> {
+  for (const p of rows) {
+    const schemes =
+      schemesOf?.(p.projectId) ??
+      (await tx.select({ s: projectScheme.schemeId }).from(projectScheme).where(eq(projectScheme.projectId, p.projectId))).map((r) => r.s);
+    await recordAudit(tx, {
+      actor,
+      action: 'Deleted',
+      projectId: p.projectId,
+      projectNameSnapshot: p.projectName,
+      changes: diffProject({ ...(p as unknown as Record<string, unknown>), schemes }, {}),
+    });
+  }
+}
+
 export interface DeleteImpact {
   /** Projects removed outright. */
   projectsDeleted: number;
@@ -92,10 +116,16 @@ export interface DeleteImpact {
  * A project has exactly one sector, so there is no ambiguity here: every
  * project carrying this sector_id goes.
  */
-export async function deleteSector(sectorId: number): Promise<DeleteImpact> {
+export async function deleteSector(sectorId: number, actor: AuditActor): Promise<DeleteImpact> {
   return db.transaction(async (tx) => {
     const [row] = await tx.select().from(sector).where(sql`${sector.sectorId} = ${sectorId}`);
     if (!row) throw new HttpError(404, 'NOT_FOUND', 'Sector not found');
+
+    // Audit every project this removes, exactly as a single project delete
+    // does (projectsService.deleteProject). These cascade deletes used to
+    // leave no trace at all in the Audit Trail.
+    const doomed = await tx.select().from(project).where(eq(project.sectorId, sectorId));
+    await auditProjectDeletes(tx, doomed, actor);
 
     const deleted = await tx.execute(
       sql`DELETE FROM project WHERE sector_id = ${sectorId} RETURNING project_id`,
@@ -123,10 +153,37 @@ export async function deleteSector(sectorId: number): Promise<DeleteImpact> {
  *
  * The counts come back so the UI can say exactly what happened.
  */
-export async function deleteScheme(schemeId: number): Promise<DeleteImpact> {
+export async function deleteScheme(schemeId: number, actor: AuditActor): Promise<DeleteImpact> {
   return db.transaction(async (tx) => {
     const [row] = await tx.select().from(scheme).where(sql`${scheme.schemeId} = ${schemeId}`);
     if (!row) throw new HttpError(404, 'NOT_FOUND', 'Scheme not found');
+
+    // Audit first, while the rows still exist: a full "Deleted" record for
+    // every project that goes, and a schemes change for every project that
+    // is only unlinked. Nothing was recorded before — 10 projects could
+    // vanish with no entry in the Audit Trail.
+    const members = await tx
+      .select()
+      .from(project)
+      .where(sql`${project.projectId} IN (SELECT project_id FROM project_scheme WHERE scheme_id = ${schemeId})`);
+    const memberIds = members.map((m) => m.projectId);
+    const links = memberIds.length
+      ? await tx.select().from(projectScheme).where(inArray(projectScheme.projectId, memberIds))
+      : [];
+    const schemesOf = (id: string) => links.filter((l) => l.projectId === id).map((l) => l.schemeId);
+    const exclusive = members.filter((m) => schemesOf(m.projectId).every((s) => s === schemeId));
+    const shared = members.filter((m) => !exclusive.includes(m));
+    await auditProjectDeletes(tx, exclusive, actor, schemesOf);
+    for (const p of shared) {
+      const before = schemesOf(p.projectId);
+      await recordAudit(tx, {
+        actor,
+        action: 'Updated',
+        projectId: p.projectId,
+        projectNameSnapshot: p.projectName,
+        changes: diffProject({ schemes: before }, { schemes: before.filter((s) => s !== schemeId) }),
+      });
+    }
 
     // Exclusive members first — their project_scheme rows go with them.
     const deleted = await tx.execute(sql`

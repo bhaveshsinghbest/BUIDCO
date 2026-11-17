@@ -22,7 +22,6 @@ import {
   daysBetween,
 } from '../../lib/formatters';
 import { displayNitDate, displayNitNumber } from '../../features/tender/tenderWorkflow';
-import { fundsUcStatusOf } from '../../lib/fundsUc';
 
 // ── Field key type ────────────────────────────────────────────────────────────
 type FieldKey =
@@ -54,7 +53,9 @@ type FieldKey =
   | 'omStatusOverride' | 'omRemarks'
   // Funding Source & UC card
   | 'fundsUcSource' | 'fundsUcCentralShare' | 'fundsUcStateShare'
+  | 'fundsUcSanctionAgency' | 'fundsUcSanctionedAmount' | 'fundsUcReleasedToUdhd'
   | 'fundsUcOpeningBalance' | 'fundsUcGrantReceived' | 'fundsUcExpenditure'
+  | 'fundsUcCertified' | 'fundsUcSentTo'
   | 'fundsUcClosingBalance' | 'fundsUcSanctionNo' | 'fundsUcSubmittedDate' | 'fundsUcStatus'
   // Remarks card
   | 'remark' | 'mainWork'
@@ -174,17 +175,22 @@ const FIELD_GROUPS: GroupDef[] = [
     ],
   },
   {
-    group: 'Funding Source & UC Card',
+    group: 'Funds Flow & UC Card',
     fields: [
       { key: 'fundsUcSource',          label: 'Funding Source' },
       { key: 'fundsUcCentralShare',    label: 'Central Share' },
       { key: 'fundsUcStateShare',      label: 'State Share' },
-      { key: 'fundsUcOpeningBalance',  label: 'Opening Balance' },
-      { key: 'fundsUcGrantReceived',   label: 'Grant Received' },
-      { key: 'fundsUcExpenditure',     label: 'Expenditure Incurred' },
-      { key: 'fundsUcClosingBalance',  label: 'Closing Balance' },
+      { key: 'fundsUcSanctionAgency',  label: 'Sanctioning Agency' },
+      { key: 'fundsUcSanctionedAmount',label: 'Amount Sanctioned' },
       { key: 'fundsUcSanctionNo',      label: 'Sanction No.' },
-      { key: 'fundsUcSubmittedDate',   label: 'UC Submitted Date' },
+      { key: 'fundsUcReleasedToUdhd',  label: 'Released to UDHD' },
+      { key: 'fundsUcOpeningBalance',  label: 'UC Opening Balance' },
+      { key: 'fundsUcGrantReceived',   label: 'Received by BUIDCo' },
+      { key: 'fundsUcExpenditure',     label: 'Paid by BUIDCo' },
+      { key: 'fundsUcClosingBalance',  label: 'Balance with BUIDCo' },
+      { key: 'fundsUcCertified',       label: 'Covered by UC' },
+      { key: 'fundsUcSentTo',          label: 'UC Sent To' },
+      { key: 'fundsUcSubmittedDate',   label: 'UC Submission Date' },
       { key: 'fundsUcStatus',          label: 'UC Status' },
     ],
   },
@@ -449,17 +455,22 @@ export function ProjectProfileModal({ projectId, onClose }: Props): JSX.Element 
               { label: 'State Share', value: formatPercent(fundsUcEntry.stateSharePct, 0), fk: 'fundsUcStateShare' },
             ] as GridField[])
           : []),
-        { label: 'Opening Balance', value: formatCurrencyCr(fundsUcEntry.openingBalanceCr), fk: 'fundsUcOpeningBalance' },
-        { label: 'Grant Received', value: formatCurrencyCr(fundsUcEntry.grantReceivedCr), fk: 'fundsUcGrantReceived' },
-        { label: 'Expenditure Incurred', value: formatCurrencyCr(fundsUcEntry.expenditureIncurredCr), fk: 'fundsUcExpenditure' },
+        { label: 'Sanctioning Agency', value: fundsUcEntry.fundSanctionAgency, fk: 'fundsUcSanctionAgency' },
+        { label: 'Amount Sanctioned', value: formatCurrencyCr(fundsUcEntry.fundSanctionedAmountCr), fk: 'fundsUcSanctionedAmount' },
+        { label: 'Sanction No.', value: fundsUcEntry.sanctionNo, fk: 'fundsUcSanctionNo' },
+        { label: 'Released to UDHD', value: formatCurrencyCr(fundsUcEntry.fundReleasedToUdhdCr), fk: 'fundsUcReleasedToUdhd' },
+        { label: 'UC Opening Balance', value: formatCurrencyCr(fundsUcEntry.openingBalanceCr), fk: 'fundsUcOpeningBalance' },
+        { label: 'Received by BUIDCo', value: formatCurrencyCr(fundsUcEntry.grantReceivedCr), fk: 'fundsUcGrantReceived' },
+        { label: 'Paid by BUIDCo', value: formatCurrencyCr(fundsUcEntry.expenditureIncurredCr), fk: 'fundsUcExpenditure' },
         {
-          label: 'Closing Balance',
-          value: formatCurrencyCr(fundsUcEntry.openingBalanceCr + fundsUcEntry.grantReceivedCr - fundsUcEntry.expenditureIncurredCr),
+          label: 'Balance with BUIDCo',
+          value: formatCurrencyCr(fundsUcEntry.closingBalanceCr),
           fk: 'fundsUcClosingBalance',
         },
-        { label: 'Sanction No.', value: fundsUcEntry.sanctionNo, fk: 'fundsUcSanctionNo' },
-        { label: 'UC Submitted Date', value: formatDate(fundsUcEntry.ucSubmittedDate), fk: 'fundsUcSubmittedDate' },
-        { label: 'UC Status', value: fundsUcStatusOf(fundsUcEntry), fk: 'fundsUcStatus' },
+        { label: 'Covered by UC', value: formatCurrencyCr(fundsUcEntry.ucAmountCertifiedCr), fk: 'fundsUcCertified' },
+        { label: 'UC Sent To', value: fundsUcEntry.ucSentTo, fk: 'fundsUcSentTo' },
+        { label: 'UC Submission Date', value: formatDate(fundsUcEntry.ucSubmittedDate), fk: 'fundsUcSubmittedDate' },
+        { label: 'UC Status', value: fundsUcEntry.ucStatus, fk: 'fundsUcStatus' },
       ]
     : [];
 
@@ -824,14 +835,14 @@ export function ProjectProfileModal({ projectId, onClose }: Props): JSX.Element 
                   ) : null}
 
                   {showFundsUcCard ? (
-                    <FieldCard title="Funding Source & UC">
+                    <FieldCard title="Funds Flow & UC">
                       {fundsUc.isLoading ? (
                         <Skeleton className="h-16 w-full" />
                       ) : visFundsUc.length > 0 ? (
                         <FieldGrid fields={visFundsUc} />
                       ) : (
                         <p className="text-[12.5px] text-[#6B7280]">
-                          No Funding Source recorded yet — add it from the Input Sheet.
+                          No funds data recorded yet — add it from the Input Sheet → 09 Funds & UC.
                         </p>
                       )}
                     </FieldCard>

@@ -1,16 +1,15 @@
 import { NavLink } from 'react-router-dom';
-import { useAppDispatch } from '../../app/hooks';
-import { openMdBriefing } from '../../features/auth/authSlice';
+import { useAppDispatch, useAppSelector } from '../../app/hooks';
+import { openMdBriefing, selectCanViewProjects } from '../../features/auth/authSlice';
 import { cn } from '../../lib/utils';
 import { RoleGate } from '../auth/RoleGate';
 
 /**
- * The 10 primary-nav items moved into the left sidebar per Read.md §1.
- * This cluster carries the utility pills (Input Sheet / MoM / O&M),
- * role-gated chips (Audit Trail — MD/Admin; Users; MD Briefing — MD),
- * and the KPI Guide trigger. Rendered by both TopNav (desktop row, `hidden lg:flex`) and
- * Sidebar (mobile drawer, `lg:hidden`) — single source of truth so the
- * two never drift apart.
+ * The primary-nav items live in the left sidebar. This cluster carries the
+ * utility pills (Input Sheet / MoM / O&M) and role-gated chips (Audit
+ * Trail — MD/Admin; MD Briefing — MD). Rendered by both TopNav (desktop
+ * row, `hidden lg:flex`) and Sidebar (mobile drawer, `lg:hidden`) — single
+ * source of truth so the two never drift apart.
  */
 interface NavItem {
   to: string;
@@ -44,6 +43,9 @@ interface UtilityNavClusterProps {
 export function UtilityNavCluster({
   onNavigate, className,
 }: UtilityNavClusterProps): JSX.Element {
+  // Every link here opens project information (S-03).
+  const canViewProjects = useAppSelector(selectCanViewProjects);
+  if (!canViewProjects) return <div className={className} />;
   return (
     <div className={className}>
       {UTILITY_NAV_BEFORE_MOM.map((item) => (

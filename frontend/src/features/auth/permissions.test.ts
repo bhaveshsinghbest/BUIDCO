@@ -4,6 +4,7 @@ import {
   selectCanDeleteProjects,
   selectCanManageUsers,
   selectCanUpdateProjects,
+  selectCanViewProjects,
   type AuthState,
 } from './authSlice';
 
@@ -79,5 +80,14 @@ describe('permission selectors', () => {
     expect(selectCanUpdateProjects(s)).toBe(false);
     expect(selectCanDeleteProjects(s)).toBe(false);
     expect(selectCanManageUsers(s)).toBe(false);
+  });
+
+  it('"Can view projects" follows the flag for every role except MD (S-03)', () => {
+    expect(selectCanViewProjects(stateWith(null))).toBe(false);
+    expect(selectCanViewProjects(stateWith({ role: 'MD', canViewProjects: false }))).toBe(true);
+    for (const role of ['Admin', 'PD', 'Viewer'] as const) {
+      expect(selectCanViewProjects(stateWith({ role, canViewProjects: false })), role).toBe(false);
+      expect(selectCanViewProjects(stateWith({ role, canViewProjects: true })), role).toBe(true);
+    }
   });
 });

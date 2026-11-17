@@ -23,6 +23,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { request, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import { demoPassword } from '../demoCredentials';
 
 /** Prefix on every project these specs create. "ZZ" also sorts it to the
  *  bottom of any A→Z project list, out of the way of real data. */
@@ -46,7 +47,11 @@ export const APP_URL = process.env.AUDIT_APP_URL ?? 'http://localhost:5173';
  */
 export const AUDIT_USER = {
   username: process.env.AUDIT_USER ?? 'demo_md',
-  password: process.env.AUDIT_PASS ?? 'Demo@1234',
+  // Read when used, so a missing variable fails the sign-in with a clear
+  // message rather than the whole file at import. Never hardcoded (S-02).
+  get password(): string {
+    return process.env.AUDIT_PASS ?? demoPassword();
+  },
 };
 
 /* ------------------------------------------------------------------ */
@@ -136,20 +141,39 @@ export async function signIn(
 /* API access — test setup and cleanup only                            */
 /* ------------------------------------------------------------------ */
 
-let cached: { api: APIRequestContext; token: string } | null = null;
+let cached: { api: APIRequestContext; token: string; issuedAt: number } | null = null;
+
+/**
+ * Re-authenticate before the access token expires.
+ *
+ * Access tokens live 15 minutes (ACCESS_TOKEN_TTL_SECONDS = 900). The token
+ * used to be cached for the whole process, which was fine while the full
+ * suite finished inside that window — but it now runs longer, so the token
+ * expired mid-run and every subsequent write failed with
+ * `401 UNAUTHENTICATED`. That reads as a product bug in whichever spec
+ * happened to be running at the time, which is exactly the wrong place to
+ * look.
+ *
+ * Refreshed at 10 minutes rather than at the 15-minute cliff, so a long
+ * individual test cannot straddle the boundary. The APIRequestContext is
+ * reused; only the token is reissued.
+ */
+const TOKEN_MAX_AGE_MS = 10 * 60 * 1000;
 
 /**
  * An authenticated APIRequestContext pointed at the Vite dev server, so
  * requests take exactly the same /api proxy path the browser does.
  */
 export async function apiContext(): Promise<{ api: APIRequestContext; token: string }> {
-  if (cached) return cached;
-  const api = await request.newContext({ baseURL: APP_URL });
+  if (cached !== null && Date.now() - cached.issuedAt < TOKEN_MAX_AGE_MS) {
+    return { api: cached.api, token: cached.token };
+  }
+  const api = cached?.api ?? (await request.newContext({ baseURL: APP_URL }));
   const res = await api.post('/api/auth/login', { data: AUDIT_USER });
   if (!res.ok()) throw new Error(`audit sign-in failed: ${res.status()} ${await res.text()}`);
   const body = (await res.json()) as { accessToken: string };
-  cached = { api, token: body.accessToken };
-  return cached;
+  cached = { api, token: body.accessToken, issuedAt: Date.now() };
+  return { api, token: body.accessToken };
 }
 
 function authHeaders(token: string): Record<string, string> {
@@ -579,7 +603,13 @@ export function toCount(value: string | undefined): number | null {
 /** Opens Projects filtered to this run's test data. */
 export async function gotoProjectsFiltered(page: Page, search = AUDIT_TAG): Promise<void> {
   await page.goto('/projects');
-  const box = page.getByPlaceholder('Name, NIT number, or project ID…');
+  // Located by role and accessible name, not by placeholder text. The
+  // placeholder was matched exactly here before, so a copy edit (the box
+  // now advertises Hindi) broke every suite that filters projects; and
+  // matching it loosely is ambiguous, because the Universal Search bar in
+  // the header also mentions "NIT number". The accessible name is the one
+  // thing that identifies this input and is not prose.
+  const box = page.getByRole('textbox', { name: 'Search' });
   await box.waitFor({ state: 'visible', timeout: 30_000 });
   await box.fill(search);
   // The list is debounced; wait for the table to settle on the filtered set.

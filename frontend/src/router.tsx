@@ -1,4 +1,5 @@
 import { Route, Routes } from 'react-router-dom';
+import { ProjectViewGuard } from './components/auth/ProjectViewGuard';
 import { ProtectedRoute } from './components/auth/ProtectedRoute';
 import { RoleGuardedRoute } from './components/auth/RoleGate';
 import { AppShell } from './components/layout/AppShell';
@@ -16,7 +17,6 @@ import { NotFoundPage } from './pages/NotFoundPage';
 import { OmPage } from './pages/OmPage';
 import { OutstandingGapsPage } from './pages/OutstandingGapsPage';
 import { OverviewPage } from './pages/OverviewPage';
-import { PlaceholderPage } from './pages/PlaceholderPage';
 import { PreMonsoonPage } from './pages/PreMonsoonPage';
 import { ProjectDetailPage } from './pages/ProjectDetailPage';
 import { ProjectsPage } from './pages/ProjectsPage';
@@ -32,42 +32,50 @@ export function AppRoutes(): JSX.Element {
 
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
-          <Route index element={<OverviewPage />} />
+          {/*
+            Everything that shows project information needs "Can view
+            projects" (S-03) — the API refuses it otherwise, so the guard
+            shows a clear notice instead of pages that cannot load.
+          */}
+          <Route element={<ProjectViewGuard />}>
+            <Route index element={<OverviewPage />} />
 
-          {/* Primary tabs */}
-          <Route path="schemes" element={<SchemesPage />} />
-          <Route path="sectors" element={<SectorsPage />} />
-          <Route path="districts" element={<DistrictsPage />} />
-          <Route path="divisions" element={<DivisionsPage />} />
+            {/* Primary tabs */}
+            <Route path="schemes" element={<SchemesPage />} />
+            <Route path="sectors" element={<SectorsPage />} />
+            <Route path="districts" element={<DistrictsPage />} />
+            <Route path="divisions" element={<DivisionsPage />} />
 
-          {/* Projects — 6.3 */}
-          <Route path="projects" element={<ProjectsPage />} />
-          <Route path="projects/:projectId" element={<ProjectDetailPage />} />
+            {/* Projects — 6.3 */}
+            <Route path="projects" element={<ProjectsPage />} />
+            <Route path="projects/:projectId" element={<ProjectDetailPage />} />
 
-          {/* Input Sheet — 6.4 (RBAC gated inside the page) */}
-          <Route path="input-sheet" element={<InputSheetPage />} />
-          <Route path="input-sheet/:projectId" element={<InputSheetPage />} />
+            {/* Input Sheet — 6.4 (RBAC gated inside the page) */}
+            <Route path="input-sheet" element={<InputSheetPage />} />
+            <Route path="input-sheet/:projectId" element={<InputSheetPage />} />
 
-          {/* Domain lists — 6.5 */}
-          <Route path="cos-eot" element={<CosEotPage />} />
-          <Route path="management-actions" element={<MgmtActionsPage />} />
-          <Route path="gaps" element={<OutstandingGapsPage />} />
-          <Route path="pre-monsoon" element={<PreMonsoonPage />} />
-          <Route path="funds-uc" element={<FundsUcPage />} />
-          <Route path="mom" element={<MoMPage />} />
-          {/* Photos view deferred to end of Phase 6 */}
-          <Route path="photos" element={<PlaceholderPage title="Geo Photos" subBatch="deferred" />} />
-          <Route path="om" element={<OmPage />} />
+            {/* Domain lists — 6.5. Geo photos live on each project (Input
+                Sheet and project detail); there is no separate photos page. */}
+            <Route path="cos-eot" element={<CosEotPage />} />
+            <Route path="management-actions" element={<MgmtActionsPage />} />
+            <Route path="gaps" element={<OutstandingGapsPage />} />
+            <Route path="pre-monsoon" element={<PreMonsoonPage />} />
+            <Route path="funds-uc" element={<FundsUcPage />} />
+            <Route path="mom" element={<MoMPage />} />
+            <Route path="om" element={<OmPage />} />
 
-          {/* 6.6 — Audit trail is MD + Admin only; user management is MD + Admin + PD (PD scope is Viewer-only delete, enforced in-page + backend). */}
-          <Route
-            path="audit"
-            element={
-              <RoleGuardedRoute allow={['MD', 'Admin']}>
-                <AuditTrailPage />
-              </RoleGuardedRoute>
-            }
-          />
+            {/* 6.6 — Audit trail is MD + Admin only, and records project changes. */}
+            <Route
+              path="audit"
+              element={
+                <RoleGuardedRoute allow={['MD', 'Admin']}>
+                  <AuditTrailPage />
+                </RoleGuardedRoute>
+              }
+            />
+          </Route>
+
+          {/* User management is MD + Admin + PD (PD scope is Viewer-only delete, enforced in-page + backend). */}
           <Route
             path="users"
             element={

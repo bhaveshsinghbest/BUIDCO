@@ -1,4 +1,6 @@
 import { Menu } from 'lucide-react';
+import { useAppSelector } from '../../app/hooks';
+import { selectCanViewProjects } from '../../features/auth/authSlice';
 import { BuidcoLogo } from './BuidcoLogo';
 import { NavClock } from './NavClock';
 import { UniversalSearchBar } from './UniversalSearchBar';
@@ -11,6 +13,8 @@ interface TopNavProps {
 }
 
 export function TopNav({ onOpenMobileNav }: TopNavProps): JSX.Element {
+  // The universal search returns projects (S-03).
+  const canViewProjects = useAppSelector(selectCanViewProjects);
   return (
     <header className="sticky top-0 z-50 border-b border-[#E5E7EB] bg-white shadow-[0_1px_5px_rgba(0,0,0,0.07)]">
       {/* Row 1 — hamburger (mobile) · brand · utility tabs · audit · user pill.
@@ -53,9 +57,11 @@ export function TopNav({ onOpenMobileNav }: TopNavProps): JSX.Element {
           already-tight utility-pill row above (which caused horizontal
           overflow the last time search shared that row). Same row, same
           position, on every breakpoint and every section. */}
-      <div className="flex items-center justify-center border-t border-[#F3F4F6] bg-[#FAFBFC] px-4 py-1.5 sm:justify-end">
-        <UniversalSearchBar className="w-full max-w-md" />
-      </div>
+      {canViewProjects ? (
+        <div className="flex items-center justify-center border-t border-[#F3F4F6] bg-[#FAFBFC] px-4 py-1.5 sm:justify-end">
+          <UniversalSearchBar className="w-full max-w-md" />
+        </div>
+      ) : null}
 
       {/* Primary navigation lives in the left sidebar (Read.md §1). */}
     </header>

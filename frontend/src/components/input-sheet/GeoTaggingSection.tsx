@@ -3,6 +3,8 @@ import {
   geoPhotosApi,
   useCreateGeoPhotoUrlMutation,
   useDeleteGeoPhotoMutation,
+  useGetPhotoUploadConfigQuery,
+  useUploadGeoPhotoFileMutation,
 } from '../../app/api/geoPhotosApi';
 import { useAppDispatch, useAppSelector } from '../../app/hooks';
 import { selectAccessToken } from '../../features/auth/authSlice';
@@ -12,6 +14,7 @@ import { Button } from '../ui/button';
 import { FormField } from './FormField';
 import { FormSectionHeader } from './FormSectionHeader';
 import type { GeoPhoto } from '../../types/api';
+import { safeHttpUrl } from '../../lib/safeUrl';
 import type { ProjectDraft } from '../../hooks/useProjectDraft';
 
 const MAX_UPLOAD_FILES = 6;
@@ -41,12 +44,21 @@ export function GeoTaggingSection({
   const [deletePhoto, deleteState] = useDeleteGeoPhotoMutation();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // Where uploads go is the server's decision (PHOTO_STORAGE, finding S-21):
+  // its own storage, UploadThing, or not at all.
+  const { data: uploadConfig } = useGetPhotoUploadConfigQuery();
+  const storage = uploadConfig?.storage ?? 'off';
+  const maxBytes = uploadConfig?.maxBytes ?? 3 * 1024 * 1024;
+  const maxMb = Math.round((maxBytes / (1024 * 1024)) * 10) / 10;
+  const [uploadFile, uploadFileState] = useUploadGeoPhotoFileMutation();
+
   const { startUpload, isUploading } = useUploadThing('geoPhoto', {
     headers: () => (accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
     onUploadError: (e) => setError(e.message || 'Upload failed. Please try again.'),
   });
 
-  const busy = createState.isLoading || deleteState.isLoading || isUploading;
+  const busy =
+    createState.isLoading || deleteState.isLoading || isUploading || uploadFileState.isLoading;
 
   const canSave = url.trim().length > 0;
 
@@ -54,12 +66,24 @@ export function GeoTaggingSection({
     if (!fileList || fileList.length === 0) return;
     setError(null);
     try {
-      const savedProjectId = projectId ?? (await onEnsureProjectSaved());
       const files = Array.from(fileList).slice(0, MAX_UPLOAD_FILES);
-      await startUpload(files, { projectId: savedProjectId });
-      dispatch(geoPhotosApi.util.invalidateTags([{ type: 'GeoPhoto', id: savedProjectId }]));
+      const tooBig = files.find((f) => f.size > maxBytes);
+      if (tooBig) {
+        setError(`"${tooBig.name}" is larger than ${maxMb} MB.`);
+        return;
+      }
+      const savedProjectId = projectId ?? (await onEnsureProjectSaved());
+      if (storage === 'local') {
+        const photoDate = new Date().toISOString().slice(0, 10);
+        for (const file of files) {
+          await uploadFile({ projectId: savedProjectId, file, photoDate }).unwrap();
+        }
+      } else {
+        await startUpload(files, { projectId: savedProjectId });
+        dispatch(geoPhotosApi.util.invalidateTags([{ type: 'GeoPhoto', id: savedProjectId }]));
+      }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Upload failed. Please try again.');
+      setError(err instanceof Error ? err.message : readError(err));
     } finally {
       if (fileInputRef.current) fileInputRef.current.value = '';
     }
@@ -126,13 +150,17 @@ export function GeoTaggingSection({
               accept="image/jpeg,image/png,image/webp"
               multiple
               onChange={(e) => void handleFilesSelected(e.target.files)}
-              disabled={busy}
+              disabled={busy || storage === 'off'}
               className="block flex-1 text-[12.5px] text-[#374151] file:mr-3 file:h-9 file:rounded file:border-0 file:bg-[#1E3A5F] file:px-3 file:text-[12.5px] file:font-medium file:text-white hover:file:bg-[#152a48] disabled:opacity-60"
             />
-            {isUploading ? <span className="text-[12px] text-[#6B7280]">Uploading…</span> : null}
+            {isUploading || uploadFileState.isLoading ? (
+              <span className="text-[12px] text-[#6B7280]">Uploading…</span>
+            ) : null}
           </div>
           <p className="mt-2 text-[11px] text-[#6B7280]">
-            JPG, PNG, or WEBP — up to 3 MB each, {MAX_UPLOAD_FILES} files per upload.
+            {storage === 'off'
+              ? 'File upload is not enabled on this server. Add the photo as a link below.'
+              : `JPG, PNG, or WEBP — up to ${maxMb} MB each, ${MAX_UPLOAD_FILES} files per upload.`}
           </p>
 
           <div className="my-3 border-t border-[#E5E7EB]" />
@@ -174,7 +202,7 @@ export function GeoTaggingSection({
               >
                 <div className="relative flex h-32 items-center justify-center bg-[#F3F4F6]">
                   <img
-                    src={p.url}
+                    src={safeHttpUrl(p.url) ?? undefined}
                     alt={p.caption ?? 'Site photo'}
                     className="h-full w-full object-cover"
                     onError={(e) => {
@@ -191,7 +219,7 @@ export function GeoTaggingSection({
                     <span>{p.photoDate ?? '—'}</span>
                     <div className="flex items-center gap-2">
                       <a
-                        href={p.url}
+                        href={safeHttpUrl(p.url) ?? undefined}
                         target="_blank"
                         rel="noreferrer noopener"
                         className="text-[#2563EB] hover:underline"

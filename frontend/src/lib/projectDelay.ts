@@ -15,6 +15,8 @@ import { daysBetween } from './formatters';
 export interface DelayableProject {
   plannedEndDate?: string | null;
   expectedCompletionDate?: string | null;
+  /** Execution status. A Completed project is never overdue. */
+  status?: string | null;
 }
 
 /**
@@ -30,6 +32,12 @@ export interface DelayableProject {
 export function delayDaysOf(p: DelayableProject, now: Date = new Date()): number | null {
   const target = p.plannedEndDate ?? p.expectedCompletionDate;
   if (!target) return null;
+  // A finished project is not running late, however far past its planned
+  // date it finished — the same rule as the backend's v_project_delay_status
+  // (Completed → 0 delay days), which feeds the Overview's delay figures.
+  // Without this a project completed last year matched "More than 6 Months"
+  // in the Projects / Tender delay filters and showed "333d overdue".
+  if (p.status === 'Completed') return 0;
   return daysBetween(target, now);
 }
 

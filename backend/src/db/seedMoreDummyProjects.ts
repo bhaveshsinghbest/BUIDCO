@@ -26,6 +26,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, pool } from './client.js';
+import { assertDemoSeedingAllowed } from './seedGuard.js';
 import { district, division, project, sector } from './schema.js';
 import { FINAL_TENDER_SUB_STAGE, type TenderSubStage } from './enums.js';
 import type { AuditActor } from '../lib/audit.js';
@@ -137,6 +138,7 @@ const SPECS: Spec[] = [
 ];
 
 async function main(): Promise<void> {
+  await assertDemoSeedingAllowed('seedMoreDummyProjects');
   const sectorRows = await db.select().from(sector);
   const divisionRows = await db.select().from(division);
   const districtRows = await db.select().from(district);

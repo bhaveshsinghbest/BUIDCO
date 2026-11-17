@@ -8,6 +8,7 @@
  *   npx playwright test e2e/tasks-costoverrun-coseot
  */
 import { expect, test, type Locator, type Page } from '@playwright/test';
+import { demoPassword } from './demoCredentials';
 import { AUDIT_TAG, apiCreateProject, apiDeleteAuditProject, cellInRow, signIn } from './audit/audit-kit';
 
 /** Header texts of a table, lower-cased — headers are styled `uppercase`,
@@ -230,7 +231,7 @@ test.describe('bhaveshTask Tasks 2, 4, 5', () => {
 
   test('Task 5 — a read-only role is not offered Edit', async ({ page }) => {
     await page.setViewportSize({ width: 1440, height: 900 });
-    await signIn(page, { username: 'demo_viewer', password: 'Demo@1234' });
+    await signIn(page, { username: 'demo_viewer', password: demoPassword() });
     await page.goto('/cos-eot');
 
     const cosBtn = page.locator('tbody tr').first().getByRole('button').first();

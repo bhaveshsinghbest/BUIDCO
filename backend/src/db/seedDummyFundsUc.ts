@@ -15,6 +15,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, pool } from './client.js';
+import { assertDemoSeedingAllowed } from './seedGuard.js';
 import { project, projectFundsUc } from './schema.js';
 import type { AuditActor } from '../lib/audit.js';
 import { createFundsUc, type FundsUcCreateInput } from '../services/fundsUcService.js';
@@ -218,6 +219,7 @@ const ENTRIES: Array<{ projectName: string } & Omit<FundsUcCreateInput, 'project
 ];
 
 async function main(): Promise<void> {
+  await assertDemoSeedingAllowed('seedDummyFundsUc');
   let created = 0;
   let skipped = 0;
 

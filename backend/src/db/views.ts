@@ -247,6 +247,8 @@ export const vCosEotRecords = pgView('v_cos_eot_records', {
   originalEndDate: date('original_end_date'),
   newEndDate: date('new_end_date'),
   revisedDate: date('revised_date'),
+  /** Added in drizzle/0017 so the CoS/EoT register can show Division. */
+  divisionId: integer('division_id'),
 }).existing();
 
 export const vProjectCosEotRollup = pgView('v_project_cos_eot_rollup', {

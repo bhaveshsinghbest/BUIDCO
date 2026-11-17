@@ -43,6 +43,7 @@
 
 import { eq } from 'drizzle-orm';
 import { db, pool } from './client.js';
+import { assertDemoSeedingAllowed } from './seedGuard.js';
 import {
   cosEotItem,
   district,
@@ -419,6 +420,7 @@ async function ensureCosEot(p: ProjectRow): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  await assertDemoSeedingAllowed('seedFullFieldCompletion');
   const rows = await db.select().from(project);
   const dummy = rows.filter((r) => DUMMY_NAME_PATTERN.test(r.projectName));
   process.stdout.write(`Processing ${dummy.length} dummy projects...\n`);

@@ -172,15 +172,24 @@ export const PRE_MONSOON_LABELS: Record<string, string> = {
 
 export const FUNDS_UC_LABELS: Record<string, string> = {
   projectId: 'Project ID',
-  fundingSource: 'Funding source',
-  openingBalanceCr: 'Opening balance (₹ Cr)',
-  grantReceivedCr: 'Grant received (₹ Cr)',
-  expenditureIncurredCr: 'Expenditure incurred (₹ Cr)',
+  // Labels match the Input Sheet's "09 Funds & UC" section, so an audit
+  // entry reads exactly like the field the user changed.
+  fundingSource: 'Funding Source',
+  fundSanctionAgency: 'Sanctioning Agency',
+  fundSanctionedAmountCr: 'Amount Sanctioned by Agency (₹ Cr.)',
+  sanctionNo: 'Sanction No. / Letter Ref.',
+  sanctionDate: 'Sanction Date',
+  fundReleasedToUdhdCr: 'Released by Agency to UDHD (₹ Cr.)',
+  openingBalanceCr: 'UC Opening Balance (₹ Cr.)',
+  grantReceivedCr: 'Received by BUIDCo (₹ Cr.)',
+  expenditureIncurredCr: 'Paid / Released by BUIDCo (₹ Cr.)',
+  ucAmountCertifiedCr: 'Amount Covered by Submitted UC (₹ Cr.)',
+  ucSentTo: 'UC Sent To (Department)',
+  ucSubmittedDate: 'UC Submission Date',
+  ucStatusOverride: 'UC Status (Manual Override)',
+  remarks: 'UC / Funds Remarks',
   centralSharePct: 'Central share (%)',
   stateSharePct: 'State share (%)',
-  sanctionNo: 'Sanction no.',
-  ucSubmittedDate: 'UC submitted date',
-  remarks: 'Remarks',
   fundsUcId: 'Funds & UC ID',
   table: 'Table',
 };

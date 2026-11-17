@@ -91,7 +91,14 @@ export const authApi = api.injectEndpoints({
     }),
 
     logout: build.mutation<void, void>({
-      query: () => ({ url: 'auth/logout', method: 'POST' }),
+      // Same JSON content-type as refresh: the API refuses anything else so
+      // a cross-site form cannot sign the user out (finding S-28).
+      query: () => ({
+        url: 'auth/logout',
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: {},
+      }),
       async onQueryStarted(_arg, { dispatch, queryFulfilled }) {
         try {
           await queryFulfilled;

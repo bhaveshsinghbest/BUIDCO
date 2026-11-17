@@ -12,7 +12,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import pg from 'pg';
-import { env } from '../env.js';
+import { connectionConfig } from './connection.js';
 
 const { Client } = pg;
 
@@ -29,7 +29,8 @@ async function run(): Promise<void> {
     return;
   }
 
-  const client = new Client({ connectionString: env.DATABASE_URL });
+  // Same TLS policy as the API pool (connection.ts, finding S-10).
+  const client = new Client(connectionConfig());
   await client.connect();
 
   try {

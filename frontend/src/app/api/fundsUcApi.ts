@@ -1,15 +1,22 @@
 import { api } from '../api';
-import type { FundsUcCreatePayload, FundsUcEntry, FundsUcUpdatePayload, ItemsResponse } from '../../types/api';
+import type {
+  FundsUcCreatePayload,
+  FundsUcEntry,
+  FundsUcUpdatePayload,
+  ItemsResponse,
+} from '../../types/api';
 
 export const fundsUcApi = api.injectEndpoints({
   endpoints: (build) => ({
+    /** Every Funds & UC entry the user may see. The API scopes it to the
+     *  PD's own division, so the tracker's totals are scoped too (T-02). */
     listFundsUc: build.query<ItemsResponse<FundsUcEntry>, void>({
       query: () => 'funds-uc',
       providesTags: ['FundsUc'],
     }),
     /** Single-project lookup — used by every individual project-details view
      *  (Input Sheet, Project Details, MD Portfolio) instead of fetching the
-     *  entire ledger just to find one row. `null` means no entry yet — a
+     *  entire list just to find one row. `null` means no entry yet — a
      *  normal state, not an error. */
     getFundsUcByProject: build.query<FundsUcEntry | null, string>({
       query: (projectId) => `funds-uc/project/${projectId}`,

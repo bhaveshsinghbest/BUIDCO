@@ -136,4 +136,5 @@ export const {
   useGetOutstandingGapsQuery,
   useGetMgmtActionSummaryQuery,
   useListCosEotRecordsQuery,
+  useLazyListCosEotRecordsQuery,
 } = kpisApi;

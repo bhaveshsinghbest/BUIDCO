@@ -115,6 +115,45 @@ describe('errorHandler', () => {
     });
   });
 
+  describe('Postgres client-input errors', () => {
+    const pgError = (code: string, message: string) => Object.assign(new Error(message), { code });
+    const cases: Array<[string, string, number, string]> = [
+      ['23503', 'insert or update on table "project" violates foreign key constraint', 400, 'INVALID_REFERENCE'],
+      ['23505', 'duplicate key value violates unique constraint', 409, 'CONFLICT'],
+      ['23514', 'new row violates check constraint', 400, 'CONSTRAINT_VIOLATION'],
+      ['22003', 'numeric field overflow', 400, 'VALUE_OUT_OF_RANGE'],
+      ['22008', 'date/time field value out of range: "2026-02-31"', 400, 'INVALID_DATE'],
+      ['22007', 'invalid input syntax for type date', 400, 'INVALID_DATE'],
+      ['22001', 'value too long for type character varying(20)', 400, 'VALUE_TOO_LONG'],
+      ['22P02', 'invalid input syntax for type integer', 400, 'INVALID_VALUE'],
+    ];
+    for (const [code, message, status, apiCode] of cases) {
+      it(`maps SQLSTATE ${code} to ${status} ${apiCode} without leaking the DB message`, async () => {
+        const app = buildApp((_req, _res, next) => next(pgError(code, message)));
+        const res = await request(app).get('/boom').expect(status);
+        expect(res.body.error.code).toBe(apiCode);
+        expect(JSON.stringify(res.body)).not.toContain(message);
+        expect(res.body.error.stack).toBeUndefined();
+      });
+    }
+
+    it('looks through a wrapper error at its cause', async () => {
+      const app = buildApp((_req, _res, next) =>
+        next(Object.assign(new Error('query failed'), { cause: pgError('23503', 'fk') })),
+      );
+      const res = await request(app).get('/boom').expect(400);
+      expect(res.body.error.code).toBe('INVALID_REFERENCE');
+    });
+
+    it('leaves server-side SQLSTATEs (e.g. 40P01 deadlock, 53300 too many connections) as 500', async () => {
+      for (const code of ['40P01', '53300', '42P01']) {
+        const app = buildApp((_req, _res, next) => next(pgError(code, 'server fault')));
+        const res = await request(app).get('/boom').expect(500);
+        expect(res.body.error.code).toBe('INTERNAL_ERROR');
+      }
+    });
+  });
+
   it('notFoundHandler returns 404 NOT_FOUND for any unknown path', async () => {
     const app = buildApp((_req, res) => res.json({ ok: true }));
     const res = await request(app).get('/other-path').expect(404);

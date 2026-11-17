@@ -1,6 +1,8 @@
 import type { ErrorRequestHandler, RequestHandler } from 'express';
 import { ZodError } from 'zod';
 import { isProduction } from '../env.js';
+import { describeError, logger } from '../lib/logger.js';
+import { pathOf } from './requestLogger.js';
 
 export class HttpError extends Error {
   public readonly status: number;
@@ -57,7 +59,72 @@ function asBodyParserError(
   return null;
 }
 
-export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+/**
+ * Classify a Postgres error that was caused by the client's input.
+ *
+ * Request schemas catch almost everything, but a few faults are only
+ * detectable by the database: a district/scheme id that doesn't exist
+ * (FK), a duplicate unique value, a CHECK constraint, a value past the
+ * column's precision. Those reported themselves as HTTP 500 "internal"
+ * failures — misleading for callers (5xx reads as "retry me") and noise in
+ * monitoring. Anything not listed here stays a 500. Messages are generic so
+ * no schema details leak.
+ */
+function asPgClientError(
+  err: unknown,
+): { status: number; code: string; message: string } | null {
+  const candidates = [err, (err as { cause?: unknown } | null)?.cause];
+  for (const c of candidates) {
+    if (typeof c !== 'object' || c === null) continue;
+    const code = (c as { code?: unknown }).code;
+    if (typeof code !== 'string' || !/^[0-9A-Z]{5}$/.test(code)) continue;
+    switch (code) {
+      case '23503':
+        return {
+          status: 400,
+          code: 'INVALID_REFERENCE',
+          message: 'The request refers to a record that does not exist, or the record is still in use',
+        };
+      case '23505':
+        return { status: 409, code: 'CONFLICT', message: 'A record with the same unique value already exists' };
+      case '23514':
+        return { status: 400, code: 'CONSTRAINT_VIOLATION', message: 'A value is outside its allowed range' };
+      case '22003':
+        return { status: 400, code: 'VALUE_OUT_OF_RANGE', message: 'A numeric value is out of range' };
+      case '22007':
+      case '22008':
+        return { status: 400, code: 'INVALID_DATE', message: 'A date value is not a valid calendar date' };
+      case '22001':
+        return { status: 400, code: 'VALUE_TOO_LONG', message: 'A text value is too long' };
+      case '22P02':
+        return { status: 400, code: 'INVALID_VALUE', message: 'A value has the wrong format' };
+      default:
+        return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Server-side record of an unexpected (HTTP 500) failure.
+ *
+ * Before this, an internal error was answered with a generic message and
+ * then discarded — nothing reached the server logs, so a production fault
+ * left no trace for operators or auditors. The stack goes to the error log
+ * (with server paths made relative, see lib/logger.ts) and never to the
+ * client in production. Only the method and path are logged: the query
+ * string and body can carry search terms or form data.
+ */
+function logInternalError(err: unknown, method: string, path: string, requestId: unknown): void {
+  logger.error('http.unhandled_error', {
+    requestId: typeof requestId === 'string' ? requestId : null,
+    method,
+    path,
+    ...describeError(err),
+  });
+}
+
+export const errorHandler: ErrorRequestHandler = (err, req, res, _next) => {
   if (err instanceof ZodError) {
     res.status(400).json({
       error: {
@@ -97,6 +164,16 @@ export const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     });
     return;
   }
+
+  const pgError = asPgClientError(err);
+  if (pgError) {
+    res.status(pgError.status).json({
+      error: { code: pgError.code, message: pgError.message },
+    });
+    return;
+  }
+
+  logInternalError(err, req.method, pathOf(req), res.locals.requestId);
 
   const payload: Record<string, unknown> = {
     code: 'INTERNAL_ERROR',

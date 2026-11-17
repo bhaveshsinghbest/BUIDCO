@@ -35,6 +35,15 @@ describe('delayDaysOf', () => {
     expect(delayDaysOf(both)!).toBeGreaterThan(delayDaysOf(onlyExpected)!);
   });
 
+  it('treats a Completed project as not delayed, matching the backend delay view', () => {
+    const finishedLate = { ...lateBy(400), status: 'Completed' };
+    expect(delayDaysOf(finishedLate, NOW)).toBe(0);
+    for (const w of DELAY_WINDOWS) expect(matchesDelayWindow(finishedLate, w.key, NOW)).toBe(false);
+    // the same dates on a running project still count
+    expect(delayDaysOf({ ...lateBy(400), status: 'In Progress' }, NOW)).toBe(400);
+    expect(matchesDelayWindow({ ...lateBy(400), status: 'Delayed' }, '1y', NOW)).toBe(true);
+  });
+
   it('returns null when no date is on file — unknown is not zero', () => {
     expect(delayDaysOf({})).toBeNull();
     expect(delayDaysOf({ plannedEndDate: null, expectedCompletionDate: null })).toBeNull();

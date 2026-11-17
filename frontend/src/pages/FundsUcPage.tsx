@@ -1,447 +1,475 @@
+/**
+ * Funds Flow & UC Tracker (bhaveshTask.md Parts D–F).
+ *
+ * Complete breakup from the sanctioning agency to the payment released by
+ * BUIDCo — Overall / Scheme-wise / Project-wise — and whether the
+ * Utilization Certificate (UC) has gone back to the department.
+ *
+ * Data comes from GET /api/funds-uc, which the API scopes to the PD's own
+ * division (T-02), so every total, chart and table here is scoped too.
+ * Figures are entered in the Input Sheet → "09 Funds & UC".
+ */
 import { useMemo, useRef, useState } from 'react';
-import { NavLink } from 'react-router-dom';
-import {
-  useCreateFundsUcMutation,
-  useDeleteFundsUcMutation,
-  useListFundsUcQuery,
-  useUpdateFundsUcMutation,
-} from '../app/api/fundsUcApi';
+import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { useListFundsUcQuery } from '../app/api/fundsUcApi';
 import { useGetLookupsQuery } from '../app/api/lookupsApi';
 import { useListProjectsQuery } from '../app/api/projectsApi';
-import { RoleGate } from '../components/auth/RoleGate';
-import { StatCard } from '../components/overview/StatCard';
-import { FundsUcForm } from '../components/fundsUc/FundsUcForm';
-import { Button } from '../components/ui/button';
-import { Card, CardContent } from '../components/ui/card';
+import { FundsBlock } from '../components/fundsUc/FundsBlock';
+import { GroupTable, ProjectFundTable } from '../components/fundsUc/FundTables';
+import { FundCard, FundCardHeader, FundEmptyState, StageLegend, UcStatusPill } from '../components/fundsUc/fundsUi';
+import { UcPanel } from '../components/fundsUc/UcPanel';
+import { ProjectProfileModal } from '../components/projects/ProjectProfileModal';
 import { Skeleton } from '../components/ui/skeleton';
-import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../components/ui/ColumnFilter';
-import { formatCurrencyCr, formatDate, formatPercent } from '../lib/formatters';
-import { fundsUcStatusOf, sharePercentsOf } from '../lib/fundsUc';
-import { cn } from '../lib/utils';
-import type { FundingSource, FundsUcCreatePayload, FundsUcEntry, FundsUcStatus } from '../types/api';
+import {
+  agencyOf,
+  aggregateFlow,
+  cr,
+  entryToFundProject,
+  fmtD,
+  FUND_COLORS,
+  groupFundRows,
+  isFundTracked,
+  isUcNotSent,
+  makeDemoFundProjects,
+  sharePercentsOf,
+  toFundRows,
+  type FundGroup,
+  type FundProject,
+  type FundRow,
+} from '../lib/fundsUc';
+import type { FundingSource } from '../types/api';
 
-const FUNDING_SOURCES: FundingSource[] = [
-  'Central - EAP',
-  'Central - Non-EAP',
-  'Central - State Share',
-  'State Funded',
+type View = 'overall' | 'scheme' | 'project';
+
+const VIEWS: Array<[View, string]> = [
+  ['overall', '📊 Overall'],
+  ['scheme', '🗂️ Scheme-wise'],
+  ['project', '🏗️ Project-wise'],
 ];
 
-function closingBalanceOf(entry: FundsUcEntry): number {
-  return entry.openingBalanceCr + entry.grantReceivedCr - entry.expenditureIncurredCr;
+function ChainChip({ children, color }: { children: string; color: string }): JSX.Element {
+  return (
+    <span className="rounded-full px-3 py-[5px] text-[11.5px] font-bold text-white" style={{ background: color }}>
+      {children}
+    </span>
+  );
 }
 
-const STATUS_BADGE: Record<FundsUcStatus, string> = {
-  Submitted: 'border-[#BBF7D0] bg-[#F0FDF4] text-[#15803D]',
-  Pending: 'border-[#FDE68A] bg-[#FFFBEB] text-[#B45309]',
-  Overdue: 'border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C]',
-};
+const Arrow = (): JSX.Element => (
+  <span className="text-[#9CA3AF]" aria-hidden>
+    →
+  </span>
+);
 
 export function FundsUcPage(): JSX.Element {
   const listQ = useListFundsUcQuery();
   const { data: lookups } = useGetLookupsQuery();
-  const projectsQ = useListProjectsQuery({ limit: 100 });
-  const [createEntry, createState] = useCreateFundsUcMutation();
-  const [updateEntry, updateState] = useUpdateFundsUcMutation();
-  const [deleteEntry, deleteState] = useDeleteFundsUcMutation();
 
-  const ledgerRef = useRef<HTMLDivElement>(null);
-  const scrollToLedger = (): void => {
-    ledgerRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const [view, setView] = useState<View>('overall');
+  const [selScheme, setSelScheme] = useState<string | null>(null);
+  const [selProjId, setSelProjId] = useState<string | null>(null);
+  const [search, setSearch] = useState('');
+  const [schemeFilter, setSchemeFilter] = useState('All');
+  const [ucNotSentOnly, setUcNotSentOnly] = useState(false);
+  const [useDemo, setUseDemo] = useState(false);
+  const [profileId, setProfileId] = useState<string | null>(null);
+  const topRef = useRef<HTMLElement>(null);
+
+  const real = useMemo(() => (listQ.data?.items ?? []).map(entryToFundProject).filter(isFundTracked), [listQ.data]);
+  // Sample numbers only ever stand in for an empty tracker (T-18).
+  const demoOn = useDemo && real.length === 0;
+  const demoBaseQ = useListProjectsQuery({ limit: 7 }, { skip: !demoOn });
+
+  const schemeNameById = useMemo(() => new Map((lookups?.schemes ?? []).map((s) => [s.schemeId, s.schemeName])), [lookups]);
+  const source = useMemo<FundProject[]>(() => {
+    if (!demoOn) return real;
+    const base: FundProject[] = (demoBaseQ.data?.items ?? []).map((p) => ({
+      id: p.projectId,
+      projectName: p.projectName,
+      sector: p.schemes.map((id) => schemeNameById.get(id) ?? `#${id}`),
+      aaAmount: p.aaAmountCr ?? '',
+      revisedAAAmount: p.revisedAaAmountCr ?? '',
+    }));
+    return makeDemoFundProjects(base);
+  }, [demoOn, real, demoBaseQ.data, schemeNameById]);
+
+  const rows = useMemo(() => toFundRows(source), [source]);
+  const overall = useMemo(() => aggregateFlow(rows), [rows]);
+  const schemeGroups = useMemo(() => groupFundRows(rows, (r) => r.scheme), [rows]);
+  const agencyGroups = useMemo(() => groupFundRows(rows, (r) => agencyOf(r.p)), [rows]);
+  const totalGroup: FundGroup = { name: 'TOTAL', rows, agg: overall };
+
+  /** A project click anywhere on the page opens it in Project-wise (T-27). */
+  const pickProject = (p: FundProject): void => {
+    setSelProjId(p.id);
+    setView('project');
+    topRef.current?.scrollIntoView?.({ behavior: 'smooth', block: 'start' });
   };
+  const selProject = rows.find((r) => r.p.id === selProjId) ?? null;
+  const selSchemeGroup = schemeGroups.find((g) => g.name === selScheme) ?? null;
 
-  const [addOpen, setAddOpen] = useState(false);
-  const [editing, setEditing] = useState<FundsUcEntry | null>(null);
-  const busy = createState.isLoading || updateState.isLoading || deleteState.isLoading;
+  const projectRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows
+      .filter(({ p, scheme, ...r }) => {
+        if (q && !(p.projectName || '').toLowerCase().includes(q)) return false;
+        if (schemeFilter !== 'All' && scheme !== schemeFilter) return false;
+        if (ucNotSentOnly && !isUcNotSent(r)) return false;
+        return true;
+      })
+      .sort((a, b) => b.f.sanctioned - a.f.sanctioned);
+  }, [rows, search, schemeFilter, ucNotSentOnly]);
 
-  const [colFilters, setColFilters] = useState<Record<string, string>>({});
-  const setColFilter = (key: string, value: string): void => {
-    setColFilters((prev) => ({ ...prev, [key]: value }));
-  };
-  const activeFilterCount = Object.values(colFilters).filter(Boolean).length;
-  const clearColFilters = (): void => setColFilters({});
-
-  const projectsById = useMemo(() => {
-    const map = new Map<string, { projectName: string; divisionId: number | null; schemes: number[] }>();
-    for (const p of projectsQ.data?.items ?? []) {
-      map.set(p.projectId, { projectName: p.projectName, divisionId: p.divisionId ?? null, schemes: p.schemes });
-    }
-    return map;
-  }, [projectsQ.data]);
-
-  const divisionNameById = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const d of lookups?.divisions ?? []) map.set(d.divisionId, d.divisionName);
-    return map;
-  }, [lookups]);
-
-  const schemeNameById = useMemo(() => {
-    const map = new Map<number, string>();
-    for (const s of lookups?.schemes ?? []) map.set(s.schemeId, s.schemeName);
-    return map;
-  }, [lookups]);
-
-  const items = useMemo(() => listQ.data?.items ?? [], [listQ.data]);
-
-  const rows = useMemo(
-    () =>
-      items.map((entry) => {
-        const proj = projectsById.get(entry.projectId);
-        const divisionName = proj?.divisionId != null ? divisionNameById.get(proj.divisionId) ?? null : null;
-        const schemeNames = (proj?.schemes ?? []).map((id) => schemeNameById.get(id) ?? `#${id}`);
-        return {
-          entry,
-          projectName: proj?.projectName ?? entry.projectId,
-          divisionName,
-          schemeNames,
-          closingBalanceCr: closingBalanceOf(entry),
-          status: fundsUcStatusOf(entry),
-          shares: sharePercentsOf(entry),
-        };
-      }),
-    [items, projectsById, divisionNameById, schemeNameById],
-  );
-
-  const kpis = useMemo(
-    () => ({
-      projectsTracked: items.length,
-      grantReceivedCr: items.reduce((sum, e) => sum + e.grantReceivedCr, 0),
-      expenditureIncurredCr: items.reduce((sum, e) => sum + e.expenditureIncurredCr, 0),
-      closingBalanceCr: rows.reduce((sum, r) => sum + r.closingBalanceCr, 0),
-      ucOverdue: rows.filter((r) => r.status === 'Overdue').length,
-    }),
-    [items, rows],
-  );
-
-  const byFundingSource = useMemo(
-    () =>
-      FUNDING_SOURCES.map((source) => {
-        const matching = rows.filter((r) => r.entry.fundingSource === source);
-        return {
-          fundingSource: source,
-          projects: matching.length,
-          grantReceivedCr: matching.reduce((sum, r) => sum + r.entry.grantReceivedCr, 0),
-          expenditureIncurredCr: matching.reduce((sum, r) => sum + r.entry.expenditureIncurredCr, 0),
-          closingBalanceCr: matching.reduce((sum, r) => sum + r.closingBalanceCr, 0),
-        };
-      }),
-    [rows],
-  );
-
-  const filteredRows = useMemo(
-    () =>
-      rows.filter(
-        (r) =>
-          textMatches(colFilters.project ?? '', r.projectName) &&
-          textMatches(colFilters.scheme ?? '', r.schemeNames.join(', ')) &&
-          selectMatches(colFilters.division ?? '', r.divisionName ?? '') &&
-          selectMatches(colFilters.fundingSource ?? '', r.entry.fundingSource) &&
-          textMatches(colFilters.sanctionNo ?? '', r.entry.sanctionNo ?? '') &&
-          selectMatches(colFilters.status ?? '', r.status),
-      ),
-    [rows, colFilters],
-  );
-
-  const divisionOptions = useMemo(
-    () =>
-      Array.from(new Set(rows.map((r) => r.divisionName).filter((v): v is string => Boolean(v))))
-        .sort()
-        .map((v) => ({ value: v, label: v })),
-    [rows],
-  );
-
-  const handleCreate = async (body: FundsUcCreatePayload): Promise<void> => {
-    await createEntry(body).unwrap();
-    setAddOpen(false);
-  };
-  const handleUpdate = async (fundsUcId: number, body: FundsUcCreatePayload): Promise<void> => {
-    const {
-      fundingSource, openingBalanceCr, grantReceivedCr, expenditureIncurredCr,
-      centralSharePct, stateSharePct, sanctionNo, ucSubmittedDate, remarks,
-    } = body;
-    await updateEntry({
-      fundsUcId,
-      body: {
-        fundingSource,
-        openingBalanceCr: openingBalanceCr ?? 0,
-        grantReceivedCr: grantReceivedCr ?? 0,
-        expenditureIncurredCr: expenditureIncurredCr ?? 0,
-        centralSharePct: centralSharePct ?? null,
-        stateSharePct: stateSharePct ?? null,
-        sanctionNo: sanctionNo ?? null,
-        ucSubmittedDate: ucSubmittedDate ?? null,
-        remarks: remarks ?? null,
-      },
-    }).unwrap();
-    setEditing(null);
-  };
-  const handleDelete = async (fundsUcId: number): Promise<void> => {
-    if (!window.confirm('Delete this Funds & UC entry?')) return;
-    await deleteEntry(fundsUcId).unwrap();
-  };
+  const loading = listQ.isLoading || (demoOn && demoBaseQ.isLoading);
 
   return (
-    <article className="space-y-4">
-      <header className="flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <h1 className="text-lg font-bold text-[#111827]">Funds &amp; Utilization Certificate (UC)</h1>
-          <p className="text-[12.5px] text-[#6B7280]">
-            GFR 12-A style fund ledger — Opening Balance, Grant Received, Expenditure Incurred, Closing
-            Balance — with UC submission tracking, by scheme and funding source.
-          </p>
+    <article ref={topRef} className="mx-auto flex max-w-[1400px] scroll-mt-28 flex-col gap-[18px] text-[#111827]" data-testid="funds-uc-page">
+      <header>
+        <h1 className="text-[18px] font-extrabold text-[#111827]">Funds Flow &amp; UC Tracker</h1>
+        <p className="mt-0.5 text-[12.5px] text-[#6B7280]">
+          Complete breakup from the sanctioning agency to the payment released by BUIDCo — and whether the Utilization Certificate (UC) has gone
+          back to the department.
+        </p>
+        <div className="mt-2.5 flex flex-wrap items-center gap-2" aria-label="Flow of funds">
+          <ChainChip color={FUND_COLORS.sanction}>Sanctioning Agency (MoHUA / NMCG / State)</ChainChip>
+          <Arrow />
+          <ChainChip color={FUND_COLORS.udhd}>UDHD</ChainChip>
+          <Arrow />
+          <ChainChip color={FUND_COLORS.buidco}>BUIDCo</ChainChip>
+          <Arrow />
+          <ChainChip color={FUND_COLORS.paid}>Contractors / Payees</ChainChip>
+          <span className="ml-2 text-[11.5px] text-[#6B7280]">UC travels back: BUIDCo → UDHD → Agency</span>
         </div>
-        <RoleGate allow={['Admin', 'MD']}>
-          <Button onClick={() => { setEditing(null); setAddOpen((v) => !v); }} disabled={busy}>
-            {addOpen ? 'Close' : '+ Add Entry'}
-          </Button>
-        </RoleGate>
       </header>
 
-      {addOpen ? (
-        <FundsUcForm busy={busy} onCancel={() => setAddOpen(false)} onSubmit={handleCreate} />
-      ) : null}
-      {editing ? (
-        <FundsUcForm
-          initial={editing}
-          busy={busy}
-          onCancel={() => setEditing(null)}
-          onSubmit={(body) => handleUpdate(editing.fundsUcId, body)}
-        />
-      ) : null}
-
-      {listQ.isLoading ? (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <Skeleton key={i} className="h-20 w-full" />
-          ))}
+      {listQ.isError ? (
+        <div role="alert" className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[#FCA5A5] bg-[#FEF2F2] px-4 py-3 text-[12.5px] text-[#B91C1C]">
+          <span>Could not load the funds data.</span>
+          <button type="button" onClick={() => void listQ.refetch()} className="rounded-md border border-[#B91C1C] bg-white px-3 py-1 font-semibold">
+            Retry
+          </button>
+        </div>
+      ) : loading ? (
+        <div className="space-y-3" aria-busy="true" aria-label="Loading funds data">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+            {[0, 1, 2, 3].map((i) => (
+              <Skeleton key={i} className="h-36 w-full rounded-[10px]" />
+            ))}
+          </div>
+          <Skeleton className="h-80 w-full rounded-[10px]" />
         </div>
       ) : (
-        <div className="grid grid-cols-[repeat(auto-fit,minmax(160px,1fr))] gap-3">
-          <StatCard
-            label="Projects Tracked"
-            value={kpis.projectsTracked}
-            tone="brand"
-            hint="View in ledger →"
-            onClick={scrollToLedger}
-          />
-          <StatCard
-            label="Grant Received (₹ Cr.)"
-            value={formatCurrencyCr(kpis.grantReceivedCr)}
-            tone="info"
-            hint="View in ledger →"
-            onClick={scrollToLedger}
-          />
-          <StatCard
-            label="Expenditure Incurred (₹ Cr.)"
-            value={formatCurrencyCr(kpis.expenditureIncurredCr)}
-            tone="success"
-            hint="View in ledger →"
-            onClick={scrollToLedger}
-          />
-          <StatCard
-            label="Closing Balance (₹ Cr.)"
-            value={formatCurrencyCr(kpis.closingBalanceCr)}
-            tone="warning"
-            hint="View in ledger →"
-            onClick={scrollToLedger}
-          />
-          <StatCard
-            label="UC Overdue"
-            value={kpis.ucOverdue}
-            tone="danger"
-            hint="View in ledger →"
-            onClick={() => {
-              setColFilter('status', 'Overdue');
-              scrollToLedger();
-            }}
-          />
-        </div>
+        <>
+          {rows.length === 0 ? (
+            <FundCard className="p-7" testId="funds-empty">
+              <FundEmptyState
+                icon="💰"
+                heading="No funds data recorded yet"
+                message="Open a project's Input Sheet → section “09 Funds & UC” and fill the five stages: Sanction → Released to UDHD → Received by BUIDCo → Paid → UC."
+              />
+              {!demoOn ? (
+                <div className="mt-3.5 text-center">
+                  <button
+                    type="button"
+                    onClick={() => setUseDemo(true)}
+                    className="rounded-lg border border-[#2563EB] bg-[#EFF6FF] px-[18px] py-[9px] font-bold text-[#1D4ED8] hover:bg-[#DBEAFE]"
+                  >
+                    Preview this screen with sample numbers
+                  </button>
+                </div>
+              ) : null}
+            </FundCard>
+          ) : null}
+
+          {demoOn ? (
+            <div
+              role="status"
+              className="flex items-center justify-between gap-2.5 rounded-lg border border-[#F59E0B] bg-[#FEF3C7] px-3.5 py-[9px] text-[12px] text-[#92400E]"
+            >
+              <span>
+                <b>SAMPLE DATA</b> — illustrative numbers only, not real BUIDCo figures. They vanish as soon as you enter real data.
+              </span>
+              <button type="button" onClick={() => setUseDemo(false)} className="shrink-0 rounded-md border border-[#D97706] bg-white px-3 py-1 text-[11.5px]">
+                Hide
+              </button>
+            </div>
+          ) : null}
+
+          {rows.length > 0 ? (
+            <>
+              <div className="flex flex-wrap gap-2" role="tablist" aria-label="Funds view">
+                {VIEWS.map(([id, label]) => (
+                  <button
+                    key={id}
+                    type="button"
+                    role="tab"
+                    aria-selected={view === id}
+                    onClick={() => setView(id)}
+                    className="rounded-full border px-[18px] py-2 text-[12.5px] font-bold transition-colors"
+                    style={
+                      view === id
+                        ? { background: '#1E3A5F', borderColor: '#1E3A5F', color: 'white' }
+                        : { background: 'white', borderColor: '#D1D5DB', color: '#374151' }
+                    }
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+
+              {view === 'overall' ? (
+                <>
+                  <FundsBlock
+                    rows={rows}
+                    title="Flow of Funds — Overall"
+                    sub={`${overall.n} project(s) with funds data · all amounts ₹ Cr. · band thickness = amount`}
+                    onPick={pickProject}
+                  />
+                  <FundCard testId="by-agency">
+                    <FundCardHeader icon="🏛️" title="By Sanctioning Agency" sub="Who sanctioned, how much has been released, and where it now sits" />
+                    <GroupTable groups={agencyGroups} labelHead="Sanctioning Agency" total={totalGroup} />
+                  </FundCard>
+                  <UcPanel rows={rows} onPick={pickProject} />
+                </>
+              ) : null}
+
+              {view === 'scheme' ? (
+                <SchemeView
+                  schemeGroups={schemeGroups}
+                  selScheme={selScheme}
+                  selGroup={selSchemeGroup}
+                  onSelectScheme={setSelScheme}
+                  totalGroup={totalGroup}
+                  onPick={pickProject}
+                />
+              ) : null}
+
+              {view === 'project' ? (
+                <>
+                  {selProject ? (
+                    <SelectedProject
+                      row={selProject}
+                      onOpenProfile={() => setProfileId(selProject.p.id)}
+                      onClear={() => setSelProjId(null)}
+                    />
+                  ) : null}
+                  <FundCard testId="project-wise">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#E5E7EB] px-[18px] py-3.5">
+                      <h2 className="text-[13.5px] font-bold">
+                        Project-wise Fund Position{' '}
+                        {!selProject ? <span className="text-[12px] font-normal text-[#6B7280]">— click a project for its flow diagram</span> : null}
+                      </h2>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <select
+                          aria-label="Filter by scheme"
+                          value={schemeFilter}
+                          onChange={(e) => setSchemeFilter(e.target.value)}
+                          className="rounded-[7px] border border-[#D1D5DB] bg-white px-2.5 py-1.5 text-[12.5px]"
+                        >
+                          <option value="All">All schemes</option>
+                          {schemeGroups.map((g) => (
+                            <option key={g.name} value={g.name}>
+                              {g.name}
+                            </option>
+                          ))}
+                        </select>
+                        <label className="flex cursor-pointer items-center gap-1.5 text-[12px] text-[#374151]">
+                          <input type="checkbox" checked={ucNotSentOnly} onChange={(e) => setUcNotSentOnly(e.target.checked)} />
+                          UC not sent only
+                        </label>
+                        <input
+                          type="search"
+                          aria-label="Search project"
+                          value={search}
+                          onChange={(e) => setSearch(e.target.value)}
+                          placeholder="Search project…"
+                          className="min-w-0 rounded-[7px] border border-[#D1D5DB] px-3 py-[7px] text-[12.5px] sm:min-w-[180px]"
+                        />
+                      </div>
+                    </div>
+                    <ProjectFundTable rows={projectRows} onPick={pickProject} selectedId={selProjId} />
+                    <div className="flex flex-wrap justify-between gap-2 px-3.5 py-2.5">
+                      <StageLegend />
+                      <span className="text-[11px] text-[#B45309]">* Released-to-UDHD not entered; assumed = received by BUIDCo</span>
+                    </div>
+                  </FundCard>
+                </>
+              ) : null}
+            </>
+          ) : null}
+        </>
       )}
 
-      <Card>
-        <CardContent className="p-0">
-          <div className="border-b border-[#F3F4F6] bg-[#1E3A5F] px-4 py-2.5 text-[12.5px] font-bold text-white">
-            By Funding Source
-          </div>
-          {listQ.isLoading ? (
-            <div className="p-4"><Skeleton className="h-24 w-full" /></div>
-          ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full min-w-[640px] border-collapse text-[12.5px]">
-                <thead>
-                  <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280]">
-                    <th className="px-4 py-2 text-left">Funding Source</th>
-                    <th className="px-4 py-2 text-right">Projects</th>
-                    <th className="px-4 py-2 text-right">Grant Received (₹ Cr.)</th>
-                    <th className="px-4 py-2 text-right">Expenditure Incurred (₹ Cr.)</th>
-                    <th className="px-4 py-2 text-right">Closing Balance (₹ Cr.)</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {byFundingSource.map((row, idx) => (
-                    <tr key={row.fundingSource} className={cn('border-b border-[#F3F4F6]', idx % 2 === 1 && 'bg-[#FAFAFA]')}>
-                      <td className="px-4 py-2 font-semibold text-[#111827]">{row.fundingSource}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{row.projects}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{formatCurrencyCr(row.grantReceivedCr)}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{formatCurrencyCr(row.expenditureIncurredCr)}</td>
-                      <td className="px-4 py-2 text-right tabular-nums">{formatCurrencyCr(row.closingBalanceCr)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
-
-      <Card ref={ledgerRef}>
-        <CardContent className="p-0">
-          <div className="flex items-center justify-between border-b border-[#F3F4F6] bg-[#F9FAFB] px-4 py-2 text-[11.5px] font-bold text-[#374151]">
-            <span>
-              UC Ledger — by Project ({filteredRows.length}{activeFilterCount > 0 ? ` of ${rows.length}` : ''})
-            </span>
-            {activeFilterCount > 0 ? (
-              <button
-                type="button"
-                onClick={clearColFilters}
-                className="text-[11px] font-semibold text-[#1D4ED8] hover:underline"
-              >
-                Clear column filters ({activeFilterCount})
-              </button>
-            ) : null}
-          </div>
-          {listQ.isLoading ? (
-            <div className="p-4"><Skeleton className="h-40 w-full" /></div>
-          ) : items.length === 0 ? (
-            <div className="p-6 text-center text-[12.5px] text-[#6B7280]">
-              No Funds &amp; UC entries yet. Use &ldquo;+ Add Entry&rdquo; to record one.
-            </div>
-          ) : filteredRows.length === 0 ? (
-            <div className="p-6 text-center text-[12.5px] text-[#6B7280]">
-              No entries match the current filters.
-            </div>
-          ) : (
-            // Vertical scrolling happens inside this box rather than the
-            // page, which is what gives the header something to stick to.
-            // overflow-auto (not overflow-x-auto) keeps the horizontal scroll.
-            <div className="max-h-[70vh] overflow-auto">
-              <table className="w-full min-w-[1280px] border-collapse text-[12.5px]">
-                <thead>
-                  <tr className="bg-[#F9FAFB] text-[10.5px] font-bold uppercase tracking-wider text-[#6B7280] [&>th]:sticky [&>th]:top-0 [&>th]:z-20 [&>th]:bg-[#F9FAFB] [&>th]:shadow-[inset_0_-1px_0_#E5E7EB]">
-                    <th className="px-3 py-2 text-left">#</th>
-                    <th className="px-3 py-2 text-left">
-                      <div>Project</div>
-                      <ColumnFilterText value={colFilters.project ?? ''} onChange={(v) => setColFilter('project', v)} />
-                    </th>
-                    <th className="px-3 py-2 text-left">
-                      <div>Scheme(s)</div>
-                      <ColumnFilterText value={colFilters.scheme ?? ''} onChange={(v) => setColFilter('scheme', v)} />
-                    </th>
-                    <th className="px-3 py-2 text-left">
-                      <div>Division</div>
-                      <ColumnFilterSelect
-                        value={colFilters.division ?? ''}
-                        onChange={(v) => setColFilter('division', v)}
-                        options={divisionOptions}
-                      />
-                    </th>
-                    <th className="px-3 py-2 text-left">
-                      <div>Funding Source</div>
-                      <ColumnFilterSelect
-                        value={colFilters.fundingSource ?? ''}
-                        onChange={(v) => setColFilter('fundingSource', v)}
-                        options={FUNDING_SOURCES.map((v) => ({ value: v, label: v }))}
-                      />
-                    </th>
-                    <th className="px-3 py-2 text-right">Central Share (%)</th>
-                    <th className="px-3 py-2 text-right">State Share (%)</th>
-                    <th className="px-3 py-2 text-right">Opening</th>
-                    <th className="px-3 py-2 text-right">Received</th>
-                    <th className="px-3 py-2 text-left">
-                      <div>Sanction No.</div>
-                      <ColumnFilterText value={colFilters.sanctionNo ?? ''} onChange={(v) => setColFilter('sanctionNo', v)} />
-                    </th>
-                    <th className="px-3 py-2 text-right">Expenditure</th>
-                    <th className="px-3 py-2 text-right">Closing</th>
-                    <th className="px-3 py-2 text-left">UC Submitted</th>
-                    <th className="px-3 py-2 text-left">
-                      <div>Status</div>
-                      <ColumnFilterSelect
-                        value={colFilters.status ?? ''}
-                        onChange={(v) => setColFilter('status', v)}
-                        options={[
-                          { value: 'Submitted', label: 'Submitted' },
-                          { value: 'Pending', label: 'Pending' },
-                          { value: 'Overdue', label: 'Overdue' },
-                        ]}
-                      />
-                    </th>
-                    <RoleGate allow={['Admin', 'MD']}>
-                      <th className="px-3 py-2 text-left">Actions</th>
-                    </RoleGate>
-                  </tr>
-                </thead>
-                <tbody>
-                  {filteredRows.map((row, idx) => (
-                    <tr
-                      key={row.entry.fundsUcId}
-                      className={cn('border-b border-[#F3F4F6]', idx % 2 === 1 && 'bg-[#FAFAFA]')}
-                    >
-                      <td className="px-3 py-2 text-[#9CA3AF]">{idx + 1}</td>
-                      <td className="px-3 py-2 font-semibold">
-                        <NavLink
-                          to={`/projects/${row.entry.projectId}`}
-                          className="text-[#1D4ED8] hover:underline"
-                          title="Open project details"
-                        >
-                          {row.projectName}
-                        </NavLink>
-                      </td>
-                      <td className="px-3 py-2 text-[#374151]">{row.schemeNames.join(', ') || '—'}</td>
-                      <td className="px-3 py-2 text-[#374151]">{row.divisionName ?? '—'}</td>
-                      <td className="px-3 py-2 text-[#374151]">{row.entry.fundingSource}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {formatPercent(row.shares.centralPct, 0)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">
-                        {formatPercent(row.shares.statePct, 0)}
-                      </td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatCurrencyCr(row.entry.openingBalanceCr)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatCurrencyCr(row.entry.grantReceivedCr)}</td>
-                      <td className="px-3 py-2 text-[#374151]">{row.entry.sanctionNo ?? '—'}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatCurrencyCr(row.entry.expenditureIncurredCr)}</td>
-                      <td className="px-3 py-2 text-right tabular-nums">{formatCurrencyCr(row.closingBalanceCr)}</td>
-                      <td className="px-3 py-2 text-[#374151]">{formatDate(row.entry.ucSubmittedDate)}</td>
-                      <td className="px-3 py-2">
-                        <span
-                          className={cn(
-                            'inline-flex items-center rounded-full border px-2 py-0.5 text-[10.5px] font-bold',
-                            STATUS_BADGE[row.status],
-                          )}
-                        >
-                          {row.status}
-                        </span>
-                      </td>
-                      <RoleGate allow={['Admin', 'MD']}>
-                        <td className="px-3 py-2">
-                          <div className="flex items-center gap-1">
-                            <Button size="xs" variant="outline" onClick={() => { setAddOpen(false); setEditing(row.entry); }} disabled={busy}>
-                              Edit
-                            </Button>
-                            <Button size="xs" variant="destructive" onClick={() => handleDelete(row.entry.fundsUcId)} disabled={busy}>
-                              Delete
-                            </Button>
-                          </div>
-                        </td>
-                      </RoleGate>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      <ProjectProfileModal projectId={profileId} onClose={() => setProfileId(null)} />
     </article>
+  );
+}
+
+/* ─────────────────────────── T-24 · Scheme-wise ─────────────────────────── */
+
+function SchemeView({
+  schemeGroups,
+  selScheme,
+  selGroup,
+  onSelectScheme,
+  totalGroup,
+  onPick,
+}: {
+  schemeGroups: FundGroup[];
+  selScheme: string | null;
+  selGroup: FundGroup | null;
+  onSelectScheme: (name: string | null) => void;
+  totalGroup: FundGroup;
+  onPick: (p: FundProject) => void;
+}): JSX.Element {
+  const chartData = schemeGroups.map((g) => ({
+    name: g.name,
+    Sanctioned: +g.agg.sanctioned.toFixed(2),
+    'Released to UDHD': +g.agg.relUDHD.toFixed(2),
+    'Received by BUIDCo': +g.agg.received.toFixed(2),
+    'Paid by BUIDCo': +g.agg.paid.toFixed(2),
+  }));
+  return (
+    <>
+      <div className="flex flex-wrap gap-2" role="group" aria-label="Choose a scheme">
+        {[null, ...schemeGroups.map((g) => g.name)].map((n) => {
+          const active = (selGroup ? selScheme : null) === n;
+          return (
+            <button
+              key={n ?? '__all'}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onSelectScheme(n)}
+              className="rounded-full border px-[13px] py-[5px] text-[12px] font-semibold"
+              style={active ? { background: '#2563EB', borderColor: '#2563EB', color: 'white' } : { background: 'white', borderColor: '#D1D5DB', color: '#374151' }}
+            >
+              {n ?? 'All schemes'}
+            </button>
+          );
+        })}
+      </div>
+
+      {!selGroup ? (
+        <>
+          <FundCard testId="scheme-chart">
+            <FundCardHeader icon="📶" title="Scheme-wise Fund Position" sub="Sanctioned → Released to UDHD → Received by BUIDCo → Paid (₹ Cr.)" />
+            <div className="h-[320px] px-2 py-3.5 sm:px-[18px]">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData} margin={{ top: 8, right: 12, left: 0, bottom: 8 }}>
+                  <CartesianGrid strokeDasharray="3 3" stroke="#E5E7EB" />
+                  <XAxis dataKey="name" tick={{ fontSize: 11 }} />
+                  <YAxis tick={{ fontSize: 11 }} />
+                  <Tooltip formatter={(v: number) => `₹${v} Cr.`} />
+                  <Legend wrapperStyle={{ fontSize: 11 }} />
+                  <Bar dataKey="Sanctioned" fill={FUND_COLORS.sanction} />
+                  <Bar dataKey="Released to UDHD" fill={FUND_COLORS.udhd} />
+                  <Bar dataKey="Received by BUIDCo" fill={FUND_COLORS.buidco} />
+                  <Bar dataKey="Paid by BUIDCo" fill={FUND_COLORS.paid} />
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          </FundCard>
+          <FundCard testId="scheme-breakup">
+            <FundCardHeader icon="🗂️" title="Scheme-wise Breakup" sub="Click a scheme to see its flow diagram, UC status and projects" />
+            <GroupTable groups={schemeGroups} labelHead="Scheme" total={totalGroup} onPick={onSelectScheme} />
+            <p className="px-3.5 pb-3 text-[11px] text-[#9CA3AF]">
+              A project tagged to several schemes is counted once, under its first-listed scheme, so scheme totals add up to the Overall total.
+            </p>
+          </FundCard>
+        </>
+      ) : (
+        <>
+          {/* Keyed by scheme: switching schemes closes any open breakup. */}
+          <FundsBlock key={selGroup.name} rows={selGroup.rows} title={`Flow of Funds — ${selGroup.name}`} sub={`${selGroup.agg.n} project(s) · ₹ Cr.`} onPick={onPick} />
+          <UcPanel rows={selGroup.rows} onPick={onPick} />
+          <FundCard testId="scheme-projects">
+            <FundCardHeader icon="🏗️" title={`Projects under ${selGroup.name}`} sub="Click a project for its own flow diagram" />
+            <ProjectFundTable rows={[...selGroup.rows].sort((a, b) => b.f.sanctioned - a.f.sanctioned)} onPick={onPick} />
+          </FundCard>
+        </>
+      )}
+    </>
+  );
+}
+
+/* ─────────────────────── T-25 · One selected project ─────────────────────── */
+
+function SelectedProject({ row, onOpenProfile, onClear }: { row: FundRow; onOpenProfile: () => void; onClear: () => void }): JSX.Element {
+  const { p, f, scheme } = row;
+  const fundingSource = p.fundingSourceType ? (String(p.fundingSourceType) as FundingSource) : null;
+  const shares = fundingSource
+    ? sharePercentsOf({ fundingSource, centralSharePct: p.centralSharePct ?? null, stateSharePct: p.stateSharePct ?? null })
+    : null;
+  const label = 'text-[10.5px] font-bold text-[#6B7280]';
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-2.5" data-testid="selected-project">
+        <h2 className="text-[15px] font-extrabold text-[#111827]">
+          {p.projectName}{' '}
+          <span className="text-[12px] font-medium text-[#6B7280]">
+            · {scheme}
+            {p.fundSanctionAgency ? ` · ${String(p.fundSanctionAgency)}` : ''}
+          </span>
+        </h2>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={onOpenProfile}
+            className="rounded-[7px] border border-[#2563EB] bg-[#2563EB] px-3.5 py-1.5 text-[12px] font-semibold text-white hover:bg-[#1D4ED8]"
+          >
+            Open project profile →
+          </button>
+          <button type="button" onClick={onClear} className="rounded-[7px] border border-[#D1D5DB] bg-white px-3.5 py-1.5 text-[12px] hover:bg-[#F9FAFB]">
+            Clear
+          </button>
+        </div>
+      </div>
+
+      <FundsBlock key={p.id} rows={[row]} title="Flow of Funds — this project" sub="₹ Cr. · band thickness = amount" />
+
+      <FundCard className="px-[18px] py-3.5" testId="project-uc-status">
+        <h3 className="mb-2 text-[13px] font-bold">UC status for this project</h3>
+        <div className="grid grid-cols-2 gap-3 text-[12.5px] md:grid-cols-4">
+          <div>
+            <div className={label}>UC SENT TO DEPT.?</div>
+            <div className="font-extrabold" style={{ color: f.ucSent ? '#15803D' : '#B91C1C' }}>
+              {f.ucSent ? `✅ Yes — ${fmtD(p.ucSubmissionDate)}` : '❌ Not sent'}
+            </div>
+            <div className="text-[11px] text-[#6B7280]">
+              {p.ucSentTo ? String(p.ucSentTo) : ''}
+              {f.ucDays !== null ? `${p.ucSentTo ? ' · ' : ''}${f.ucDays} days ago` : ''}
+            </div>
+          </div>
+          <div>
+            <div className={label}>STATUS</div>
+            <UcStatusPill status={f.ucStatus} />
+          </div>
+          <div>
+            <div className={label}>COVERED BY UC</div>
+            <div className="font-extrabold">{cr(Math.min(f.ucCertified, f.paid))} Cr.</div>
+          </div>
+          <div>
+            <div className={label}>SPENT, NOT COVERED</div>
+            <div className="font-extrabold" style={{ color: f.ucUncovered > 0.005 ? '#B91C1C' : '#15803D' }}>
+              {cr(f.ucUncovered)} Cr.
+            </div>
+          </div>
+          {p.ucSanctionNo || p.ucSanctionDate ? (
+            <div className="col-span-full text-[12px] text-[#4B5563]">
+              Sanction ref: <b>{p.ucSanctionNo ? String(p.ucSanctionNo) : '—'}</b> dated {fmtD(p.ucSanctionDate)}
+            </div>
+          ) : null}
+          {fundingSource ? (
+            <div className="col-span-full text-[12px] text-[#4B5563]">
+              Funding source: <b>{fundingSource}</b>
+              {shares && shares.centralPct !== null && shares.statePct !== null
+                ? ` · Central ${shares.centralPct}% / State ${shares.statePct}%`
+                : ''}
+            </div>
+          ) : null}
+          {p.ucRemarks ? <div className="col-span-full whitespace-pre-wrap text-[12px] text-[#4B5563]">Remarks: {String(p.ucRemarks)}</div> : null}
+        </div>
+      </FundCard>
+    </>
   );
 }

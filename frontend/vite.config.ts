@@ -45,7 +45,10 @@ export default defineConfig(({ mode }) => {
     },
     build: {
       outDir: 'dist',
-      sourcemap: true,
+      // Off by default: published .map files hand the full original source
+      // to anyone who opens the site. Set BUILD_SOURCEMAP=true for a local
+      // debugging build only — never for the build that gets deployed.
+      sourcemap: env.BUILD_SOURCEMAP === 'true',
     },
     test: {
       environment: 'jsdom',

@@ -18,7 +18,7 @@ import {
   X,
 } from 'lucide-react';
 import { useAppSelector } from '../../app/hooks';
-import { selectCurrentUser } from '../../features/auth/authSlice';
+import { selectCanViewProjects, selectCurrentUser } from '../../features/auth/authSlice';
 import { RoleGate } from '../auth/RoleGate';
 import { cn } from '../../lib/utils';
 import type { UserRole } from '../../types/api';
@@ -55,7 +55,7 @@ const PRIMARY_NAV: NavItem[] = [
   { to: '/management-actions',  label: 'Management Action',  Icon: CheckSquare },
   { to: '/gaps',                label: 'Outstanding Gaps',   Icon: AlertTriangle },
   { to: '/pre-monsoon',         label: 'Pre-Monsoon Prep',   Icon: CloudRain },
-  { to: '/funds-uc',            label: 'Funds & UC',         Icon: Wallet },
+  { to: '/funds-uc',            label: 'Funds Flow & UC',    Icon: Wallet },
 ];
 
 interface Props {
@@ -77,9 +77,11 @@ export function Sidebar({
 }: Props): JSX.Element {
   const currentUser = useAppSelector(selectCurrentUser);
   const role = currentUser?.role;
-  const visibleNav = PRIMARY_NAV.filter(
-    (item) => !item.hideFor || !role || !item.hideFor.includes(role),
-  );
+  // Every primary item shows project information (S-03).
+  const canViewProjects = useAppSelector(selectCanViewProjects);
+  const visibleNav = canViewProjects
+    ? PRIMARY_NAV.filter((item) => !item.hideFor || !role || !item.hideFor.includes(role))
+    : [];
 
   // Close mobile drawer on Escape (matches modal convention).
   useEffect(() => {
@@ -202,18 +204,20 @@ export function Sidebar({
             )}
           />
           <ul className="flex flex-col gap-0.5 px-2">
-            <li>
-              <SidebarButton
-                label="Tender Dashboard"
-                Icon={Gavel}
-                collapsed={collapsed}
-                active={tenderOpen}
-                onClick={() => {
-                  onCloseMobile();
-                  onOpenTenderDashboard();
-                }}
-              />
-            </li>
+            {canViewProjects ? (
+              <li>
+                <SidebarButton
+                  label="Tender Dashboard"
+                  Icon={Gavel}
+                  collapsed={collapsed}
+                  active={tenderOpen}
+                  onClick={() => {
+                    onCloseMobile();
+                    onOpenTenderDashboard();
+                  }}
+                />
+              </li>
+            ) : null}
             <RoleGate allow={['MD', 'Admin', 'PD']}>
               <li>
                 <SidebarLink

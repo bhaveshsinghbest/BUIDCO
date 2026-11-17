@@ -147,6 +147,24 @@ export const fundingSources = [
 ] as const;
 export type FundingSource = (typeof fundingSources)[number];
 
-/** Derived (not stored) — computed from ucSubmittedDate/expenditure in the service. */
-export const fundsUcStatuses = ['Submitted', 'Pending', 'Overdue'] as const;
+/** Funds Flow & UC (drizzle/0019). Who sanctioned the money. */
+export const fundSanctionAgencies = [
+  'MoHUA – Govt. of India',
+  'NMCG – Govt. of India',
+  'Other Central Ministry',
+  'UDHD – Govt. of Bihar',
+  'Other State Dept.',
+] as const;
+export type FundSanctionAgency = (typeof fundSanctionAgencies)[number];
+
+/** Department a Utilization Certificate was sent to. */
+export const ucSentToOptions = ['UDHD, Govt. of Bihar', 'NMCG', 'MoHUA / SPMG', 'Other'] as const;
+export type UcSentTo = (typeof ucSentToOptions)[number];
+
+/**
+ * UC status. Stored only as a manual override (uc_status_override); the
+ * effective status is derived in lib/fundsUc.ts from the submission date,
+ * the override and whether BUIDCo has received or paid anything.
+ */
+export const fundsUcStatuses = ['Not Due', 'Pending', 'Submitted', 'Acknowledged', 'Overdue'] as const;
 export type FundsUcStatus = (typeof fundsUcStatuses)[number];

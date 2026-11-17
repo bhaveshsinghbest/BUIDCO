@@ -1,19 +1,23 @@
 /**
- * Dummy accounts for presentation/testing across every role (bhaveshTask.md
- * Task 2). Deliberately named demo_* so they can never be confused with a
- * real account, and never touches any existing user. Also removes one
- * leftover ad-hoc test account (audit_pd) from earlier verification work.
+ * Dummy accounts for presentation/testing across every role. Deliberately
+ * named demo_* so they can never be confused with a real account; the only
+ * existing users it touches are its own demo_* accounts, whose password it
+ * resets to DEMO_ACCOUNT_PASSWORD. Also removes one leftover ad-hoc test
+ * account (audit_pd) from earlier verification work.
  *
- * Usage: npm run db:seed-demo-roles
+ * Usage: DEMO_ACCOUNT_PASSWORD=<12+ chars> npm run db:seed-demo-roles
+ *
+ * Development and test databases only (seedGuard.ts). In production the
+ * API refuses demo_* sign-ins anyway (authService.isDemoLoginBlocked).
  */
 import { eq, sql } from 'drizzle-orm';
 import { db, pool } from './client.js';
+import { assertDemoSeedingAllowed, demoAccountPassword } from './seedGuard.js';
 import { appUser, auditLog, passwordResetRequest } from './schema.js';
-import { createUser } from '../services/usersService.js';
+import { createUser, updateUser } from '../services/usersService.js';
 import type { AuditActor } from '../lib/audit.js';
 
 const SEED_ACTOR: AuditActor = { userId: null, username: 'system:seed-roles', role: 'MD' };
-const DEMO_PASSWORD = 'Demo@1234';
 
 async function cleanupStrayAuditPd(): Promise<void> {
   const [row] = await db.select().from(appUser).where(eq(appUser.username, 'audit_pd'));
@@ -26,8 +30,15 @@ async function cleanupStrayAuditPd(): Promise<void> {
 
 async function createIfMissing(username: string, role: 'MD' | 'Admin' | 'PD' | 'Viewer', fullName: string, extra: Record<string, unknown> = {}): Promise<void> {
   const [existing] = await db.select().from(appUser).where(eq(appUser.username, username));
-  if (existing) { process.stdout.write(`skip (already exists): ${username}\n`); return; }
-  await createUser({ username, password: DEMO_PASSWORD, role, fullName, ...extra }, SEED_ACTOR);
+  if (existing) {
+    // Re-running the seeder replaces the old, published demo password with
+    // DEMO_ACCOUNT_PASSWORD (S-02). Only the demo account's own password
+    // changes, through the audited user service.
+    await updateUser(existing.userId, { password: demoAccountPassword() }, SEED_ACTOR);
+    process.stdout.write(`exists, password reset from DEMO_ACCOUNT_PASSWORD: ${username}\n`);
+    return;
+  }
+  await createUser({ username, password: demoAccountPassword(), role, fullName, ...extra }, SEED_ACTOR);
   process.stdout.write(`created ${role}: ${username}\n`);
 }
 
@@ -45,6 +56,8 @@ async function bestDivisionForDemo(): Promise<{ id: number; name: string } | nul
 }
 
 async function main(): Promise<void> {
+  await assertDemoSeedingAllowed('seedDemoRoles');
+  demoAccountPassword(); // fail before creating anything if it is not set
   await cleanupStrayAuditPd();
 
   await createIfMissing('demo_md', 'MD', 'Demo Managing Director');
@@ -64,7 +77,8 @@ async function main(): Promise<void> {
     process.stdout.write(`demo_pd assigned to division: ${division.name}\n`);
   }
 
-  process.stdout.write(`\nAll demo accounts use the password: ${DEMO_PASSWORD}\n`);
+  // The password is never printed: it is whatever DEMO_ACCOUNT_PASSWORD holds.
+  process.stdout.write('\nAll demo accounts use the password set in DEMO_ACCOUNT_PASSWORD.\n');
 }
 
 main().then(() => pool.end()).catch((err: unknown) => {

@@ -110,7 +110,3 @@ const STYLES: Record<RemarkTone, RemarkToneStyle> = {
 export function remarkStyleOf(remark: string | null | undefined): RemarkToneStyle {
   return STYLES[remarkToneOf(remark)];
 }
-
-export function styleForTone(tone: RemarkTone): RemarkToneStyle {
-  return STYLES[tone];
-}

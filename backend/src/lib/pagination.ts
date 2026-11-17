@@ -1,4 +1,5 @@
-import { z } from 'zod';
+import { sql, type SQL } from 'drizzle-orm';
+import type { AnyPgColumn } from 'drizzle-orm/pg-core';
 import { HttpError } from '../middleware/errorHandler.js';
 
 /**
@@ -37,29 +38,79 @@ export function decodeCursor(raw: string): Cursor {
   return { createdAt, id };
 }
 
-export const paginationQuery = z.object({
-  limit: z.coerce.number().int().min(1).max(100).default(25),
-  cursor: z.string().min(1).optional(),
-});
+/* ------------------------------------------------------------------ *
+ * Relevance cursor
+ *
+ * A keyset cursor encodes the sort key, which only works when the sort
+ * key is a stable, unique column. Relevance-ordered search results are
+ * sorted by a COMPUTED score that is neither — many rows share a score —
+ * so there is nothing to key on, and the only correct way to page a
+ * ranked result set is by offset.
+ *
+ * It is still handed to the client as an opaque `cursor` string, so the
+ * API contract and the frontend's "load more" are identical either way
+ * and callers never have to know which mode produced a page.
+ * ------------------------------------------------------------------ */
 
-export type PaginationQuery = z.infer<typeof paginationQuery>;
+const OFFSET_SENTINEL = 'offset:';
+
+export function encodeOffsetCursor(offset: number): string {
+  return Buffer.from(`${OFFSET_SENTINEL}${offset}`, 'utf8').toString('base64url');
+}
 
 /**
- * Given a page of size `limit + 1`, return the first `limit` and the
- * cursor for the next page. Callers should over-fetch by one row.
+ * Decode an offset cursor. Throws rather than falling back to 0, so a
+ * keyset cursor replayed against a search request is a clear 400 instead
+ * of silently restarting from the first page.
  */
-export function paginate<T>(
-  rows: T[],
-  limit: number,
-  cursorOf: (row: T) => Cursor,
-): { items: T[]; nextCursor: string | null } {
-  if (rows.length > limit) {
-    const items = rows.slice(0, limit);
-    const last = items[items.length - 1];
-    if (last === undefined) {
-      return { items, nextCursor: null };
-    }
-    return { items, nextCursor: encodeCursor(cursorOf(last)) };
+export function decodeOffsetCursor(raw: string): number {
+  let decoded: string;
+  try {
+    decoded = Buffer.from(raw, 'base64url').toString('utf8');
+  } catch {
+    throw new HttpError(400, 'BAD_CURSOR', 'Cursor is not valid base64url');
   }
-  return { items: rows, nextCursor: null };
+  if (!decoded.startsWith(OFFSET_SENTINEL)) {
+    throw new HttpError(400, 'BAD_CURSOR', 'Cursor does not belong to a search result');
+  }
+  const offset = Number(decoded.slice(OFFSET_SENTINEL.length));
+  if (!Number.isInteger(offset) || offset < 0) {
+    throw new HttpError(400, 'BAD_CURSOR', 'Cursor is malformed');
+  }
+  return offset;
 }
+
+/* ------------------------------------------------------------------ *
+ * Keyset helpers — exact timestamp precision
+ *
+ * Postgres keeps timestamptz to the MICROSECOND, a JS Date only to the
+ * millisecond. A cursor built from `row.createdAt.toISOString()` therefore
+ * sits up to 999 µs before the row it came from, and the next page's
+ * `created_at < cursor` skipped every row in that same millisecond — in
+ * practice every row written by the same transaction (now() is fixed per
+ * transaction), so a 30-row Excel import lost 5 rows at page size 25.
+ *
+ * The cursor now carries the column's exact text, and the comparison casts
+ * it back to timestamptz in SQL, so no precision is lost on the round trip.
+ * Old millisecond cursors still parse and behave exactly as before.
+ * ------------------------------------------------------------------ */
+
+/** The column's exact value as ISO-8601 UTC text with microseconds. */
+export function exactTimestamp(col: AnyPgColumn): SQL<string> {
+  return sql<string>`to_char(${col} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
+}
+
+/**
+ * Rows strictly after the cursor in `ORDER BY ts DESC, id DESC` order.
+ * `cursorTs` must come from {@link exactTimestamp} (or an older ISO cursor).
+ */
+export function keysetAfter(
+  tsCol: AnyPgColumn,
+  idCol: AnyPgColumn,
+  cursorTs: string,
+  cursorId: string | number,
+): SQL {
+  return sql`(${tsCol} < ${cursorTs}::timestamptz
+              OR (${tsCol} = ${cursorTs}::timestamptz AND ${idCol} < ${cursorId}))`;
+}
+

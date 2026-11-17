@@ -67,24 +67,6 @@ export function ColumnFilterSelect({
   );
 }
 
-/** Wraps a column's label + filter control; keeps header cells consistent. */
-export function FilterableHeader({
-  label,
-  children,
-  align = 'left',
-}: {
-  label: string;
-  children: React.ReactNode;
-  align?: 'left' | 'right';
-}): JSX.Element {
-  return (
-    <th className={cn('px-3 py-2', align === 'right' ? 'text-right' : 'text-left')}>
-      <div>{label}</div>
-      {children}
-    </th>
-  );
-}
-
 /** Case-insensitive substring match; empty filter always passes. */
 export function textMatches(filterValue: string, cellValue: string | null | undefined): boolean {
   const term = filterValue.trim().toLowerCase();

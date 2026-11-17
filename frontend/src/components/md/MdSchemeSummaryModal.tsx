@@ -16,7 +16,6 @@ import { useClickOutside } from '../../hooks/useClickOutside';
 import { remarkStyleOf } from '../../lib/remarkTone';
 import { cn } from '../../lib/utils';
 import { formatCurrencyCr, formatDate, formatPercent } from '../../lib/formatters';
-import { fundsUcStatusOf } from '../../lib/fundsUc';
 import { downloadProjectPdf, downloadProjectPptx } from '../../lib/mdProjectExport';
 import { RemarksButton, RemarksDialog } from '../projects/RemarksDialog';
 import { ColumnFilterText, ColumnFilterSelect, textMatches, selectMatches } from '../ui/ColumnFilter';
@@ -1363,16 +1362,14 @@ function ProjectDetailsBody({
       case 'fundsUcClosingBalance':
         return {
           label: 'Closing Balance',
-          value: fundsUc
-            ? formatCurrencyCr(fundsUc.openingBalanceCr + fundsUc.grantReceivedCr - fundsUc.expenditureIncurredCr)
-            : '—',
+          value: fundsUc ? formatCurrencyCr(fundsUc.closingBalanceCr) : '—',
         };
       case 'fundsUcSanctionNo':
         return { label: 'Sanction No.', value: fundsUc?.sanctionNo ?? '—' };
       case 'fundsUcSubmittedDate':
         return { label: 'UC Submitted Date', value: formatDate(fundsUc?.ucSubmittedDate) };
       case 'fundsUcStatus':
-        return { label: 'UC Status', value: fundsUc ? fundsUcStatusOf(fundsUc) : '—' };
+        return { label: 'UC Status', value: fundsUc?.ucStatus ?? '—' };
 
       case 'projectBrief':       return { label: 'Project Brief',          value: asDetail?.projectBrief ?? '—', fullWidth: true, preserveNewlines: true };
       case 'mainComponentScope': return { label: 'Main Component / Scope', value: asDetail?.mainComponentScope ?? '—', fullWidth: true, preserveNewlines: true };

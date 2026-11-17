@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { useGetLookupsQuery } from '../../app/api/lookupsApi';
 import { useAppSelector } from '../../app/hooks';
 import { selectCurrentUser } from '../../features/auth/authSlice';
@@ -18,6 +19,14 @@ const STATUSES = ['Not Started', 'In Progress', 'Completed', 'On Hold', 'Delayed
 // New Project Stage options (Phase A §3.2).
 const STAGES = ['Conceptualisation', 'Design', 'Pre-Tender', 'Tender', 'Construction', 'O&M', 'Other'];
 const CONTRACT_TYPES = ['Work Contract', 'Service Contract', 'O&M Contract', 'Others'];
+
+/**
+ * Task 8 — searches used to fire on every keystroke, so typing "drainage"
+ * issued eight requests and the first seven were already stale. 300 ms is
+ * long enough to coalesce a burst of typing and short enough that the
+ * results still feel immediate.
+ */
+const SEARCH_DEBOUNCE_MS = 300;
 const PRIORITIES = ['High', 'Medium', 'Low', 'N/A'];
 
 export function ProjectsFilterBar({
@@ -28,6 +37,35 @@ export function ProjectsFilterBar({
   totalRows,
 }: Props): JSX.Element {
   const { data: lookups } = useGetLookupsQuery();
+
+  /**
+   * Task 8 — debounced search.
+   *
+   * The input is driven by local draft state so typing stays instant, while
+   * the committed filter (which updates the URL and refetches) lags by
+   * SEARCH_DEBOUNCE_MS. Two effects, deliberately:
+   *
+   *  - the sync effect accepts changes that arrive from OUTSIDE this
+   *    component — the Universal Search bar navigates to
+   *    /projects?search=..., and without this the box would still show
+   *    whatever was last typed here.
+   *  - the commit effect pushes local edits outward, and returns early when
+   *    the two already agree, which is what stops the pair from ping-ponging.
+   */
+  const [draftSearch, setDraftSearch] = useState(filters.search);
+
+  useEffect(() => {
+    setDraftSearch(filters.search);
+  }, [filters.search]);
+
+  useEffect(() => {
+    if (draftSearch === filters.search) return undefined;
+    const id = setTimeout(() => setFilter('search', draftSearch), SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(id);
+    // setFilter is recreated per render by useProjectFilters; depending on it
+    // would restart the timer on every render and defeat the debounce.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftSearch, filters.search]);
   const currentUser = useAppSelector(selectCurrentUser);
 
   // PDs are pinned to a division — their Region + Division filters lock to
@@ -51,9 +89,9 @@ export function ProjectsFilterBar({
         <label className="grid gap-1 sm:col-span-2 md:col-span-3 lg:col-span-1">
           <span className="text-[10px] font-semibold uppercase tracking-wider text-[#6B7280]">Search</span>
           <Input
-            value={filters.search}
-            onChange={(e) => setFilter('search', e.target.value)}
-            placeholder="Name, NIT number, or project ID…"
+            value={draftSearch}
+            onChange={(e) => setDraftSearch(e.target.value)}
+            placeholder="Name, NIT number, ID — Hindi or English"
           />
         </label>
 
